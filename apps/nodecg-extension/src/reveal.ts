@@ -1,4 +1,4 @@
-import type { BallotEntry, ShowState } from "@pv/domain";
+import type { BallotEntry, ShowPhase, ShowState } from "@pv/domain";
 import type { EventBundle } from "@pv/database";
 
 export function findLinkedAct(juror: EventBundle["jurors"][number], acts: EventBundle["acts"]) {
@@ -25,15 +25,27 @@ export function publicBundle(bundle: EventBundle) {
   };
 }
 
-const JURY_REVEAL_SEQUENCE = [0, 8, 10, 12] as const;
+// Reveal-Stufen pro Juror: -1 kündigt nur den Namen an (noch keine Punkte),
+// 0 enthüllt die gesammelten Punkte 1-7, danach folgen 8, 10 und 12 einzeln.
+export const JURY_REVEAL_SEQUENCE = [-1, 0, 8, 10, 12] as const;
+
+export const PHASES_BEFORE_JURY_REVEAL: readonly ShowPhase[] = [
+  "SETUP",
+  "BEREIT",
+  "AUFTRITT",
+  "VOTING_BEREIT",
+  "VOTING_OFFEN",
+  "VOTING_GESCHLOSSEN",
+  "VALIDIERUNG"
+];
 
 export function revealedPointValues(currentRevealPoint: ShowState["currentRevealPoint"]): ReadonlySet<number> {
   const stageIndex = JURY_REVEAL_SEQUENCE.indexOf(currentRevealPoint);
   const values = new Set<number>();
-  if (stageIndex >= 0) for (let point = 1; point <= 7; point += 1) values.add(point);
-  if (stageIndex >= 1) values.add(8);
-  if (stageIndex >= 2) values.add(10);
-  if (stageIndex >= 3) values.add(12);
+  if (stageIndex >= 1) for (let point = 1; point <= 7; point += 1) values.add(point);
+  if (stageIndex >= 2) values.add(8);
+  if (stageIndex >= 3) values.add(10);
+  if (stageIndex >= 4) values.add(12);
   return values;
 }
 

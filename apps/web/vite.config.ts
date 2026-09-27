@@ -14,15 +14,15 @@ const targets = {
     outDir: path.resolve(root, "../../graphics"),
     input: {
       "beamer-a": path.resolve(root, "beamer-a.html"),
-      "beamer-b": path.resolve(root, "beamer-b.html")
+      "beamer-b": path.resolve(root, "beamer-b.html"),
+      tablet: path.resolve(root, "tablet.html")
     }
   },
   public: {
     outDir: path.resolve(root, "../../public"),
     input: {
       vote: path.resolve(root, "vote.html"),
-      jury: path.resolve(root, "jury.html"),
-      tablet: path.resolve(root, "tablet.html")
+      jury: path.resolve(root, "jury.html")
     }
   }
 } as const;

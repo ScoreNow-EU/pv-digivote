@@ -10,6 +10,7 @@ import {
   showStateSchema,
   validateEscBallot,
   type BallotEntry,
+  type ShowPhase,
   type ShowState
 } from "@pv/domain";
 import {
@@ -43,7 +44,7 @@ import {
 } from "@pv/database";
 import { computeScoreboard } from "@pv/scoring";
 import { z } from "zod";
-import { computeJuryRevealProgress, publicBundle } from "./reveal";
+import { computeJuryRevealProgress, JURY_REVEAL_SEQUENCE, PHASES_BEFORE_JURY_REVEAL, publicBundle } from "./reveal";
 
 const ltcFrameSchema = z.object({
   value: z.string().regex(/^\d{2}:\d{2}:\d{2}:\d{2}$/),
@@ -244,10 +245,9 @@ function extension(nodecg: NodeCG.ServerAPI): void {
 
   nodecg.listenFor("pv:advance-jury-reveal", () => {
     const current = readState();
-    const sequence = [0, 8, 10, 12] as const;
-    const currentIndex = sequence.indexOf(current.currentRevealPoint);
-    const atEnd = currentIndex === sequence.length - 1;
-    const nextPoint = atEnd ? 0 : sequence[currentIndex + 1]!;
+    const currentIndex = JURY_REVEAL_SEQUENCE.indexOf(current.currentRevealPoint);
+    const atEnd = currentIndex === JURY_REVEAL_SEQUENCE.length - 1;
+    const nextPoint = atEnd ? JURY_REVEAL_SEQUENCE[0]! : JURY_REVEAL_SEQUENCE[currentIndex + 1]!;
     const nextJurorIndex = atEnd ? current.currentJurorIndex + 1 : current.currentJurorIndex;
     void getActiveEventBundle().then(async (bundle) => {
       const jurors = bundle?.jurors.filter((juror) => juror.enabled) ?? [];
@@ -261,24 +261,27 @@ function extension(nodecg: NodeCG.ServerAPI): void {
         currentJurorIndex: nextJurorIndex,
         ...(awardedActId ? { currentActId: awardedActId } : {})
       });
-      emitBridgeCue({
-        eventType: "JURY_POINTS_REVEAL",
-        jurorId: juror?.id ?? null,
-        actId: awardedActId ?? null,
-        points: nextPoint,
-        countryIsoCode: bundle?.acts.find((act) => act.id === awardedActId)?.country.isoCode ?? null
-      });
+      if (nextPoint === -1) {
+        emitBridgeCue({ eventType: "JURY_JUROR_ANNOUNCE", jurorId: juror?.id ?? null });
+      } else {
+        emitBridgeCue({
+          eventType: "JURY_POINTS_REVEAL",
+          jurorId: juror?.id ?? null,
+          actId: awardedActId ?? null,
+          points: nextPoint,
+          countryIsoCode: bundle?.acts.find((act) => act.id === awardedActId)?.country.isoCode ?? null
+        });
+      }
     }).catch((error: unknown) => nodecg.log.error(`Jury-Reveal fehlgeschlagen: ${String(error)}`));
   });
 
   nodecg.listenFor("pv:rewind-jury-reveal", () => {
     const current = readState();
-    const sequence = [0, 8, 10, 12] as const;
-    const currentIndex = sequence.indexOf(current.currentRevealPoint);
+    const currentIndex = JURY_REVEAL_SEQUENCE.indexOf(current.currentRevealPoint);
     const atStart = currentIndex <= 0;
     update({
       phase: "JURY_REVEAL",
-      currentRevealPoint: atStart ? 12 : sequence[currentIndex - 1]!,
+      currentRevealPoint: atStart ? JURY_REVEAL_SEQUENCE[JURY_REVEAL_SEQUENCE.length - 1]! : JURY_REVEAL_SEQUENCE[currentIndex - 1]!,
       currentJurorIndex: atStart ? Math.max(0, current.currentJurorIndex - 1) : current.currentJurorIndex
     });
   });
@@ -651,15 +654,19 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     });
     const state = readState();
     const orderedJurors = bundle.jurors.filter((juror) => juror.enabled);
-    const revealProgress = computeJuryRevealProgress(
-      bundle.acts.map((act) => act.id),
-      orderedJurors,
-      juryEntriesByJuror,
-      state.currentJurorIndex,
-      state.currentRevealPoint
-    );
+    const revealProgress = PHASES_BEFORE_JURY_REVEAL.includes(state.phase)
+      ? Object.fromEntries(bundle.acts.map((act) => [act.id, 0]))
+      : state.phase === "JURY_REVEAL"
+        ? computeJuryRevealProgress(
+            bundle.acts.map((act) => act.id),
+            orderedJurors,
+            juryEntriesByJuror,
+            state.currentJurorIndex,
+            state.currentRevealPoint
+          )
+        : Object.fromEntries(scoreboard.rows.map((row) => [row.actId, row.juryPoints]));
     const currentJuror = orderedJurors[state.currentJurorIndex];
-    const currentBulkAward = currentJuror
+    const currentBulkAward = state.phase === "JURY_REVEAL" && currentJuror
       ? (juryEntriesByJuror.get(currentJuror.id) ?? [])
           .filter((entry) => entry.points >= 1 && entry.points <= 7)
           .sort((left, right) => left.points - right.points)
@@ -749,7 +756,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       paused: false,
       currentActId: null,
       currentJurorIndex: 0,
-      currentRevealPoint: 0,
+      currentRevealPoint: -1,
       currentPublicRevealIndex: 0,
       revealedPublicActIds: [],
       screens: { a: "RUHE", b: "RANGLISTE" }

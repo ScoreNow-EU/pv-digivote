@@ -68,7 +68,7 @@ Weitere NodeCG-URLs:
 
 - Regie: `http://localhost:9090/dashboard/#fullbleed/controller`
 - Jury: `http://localhost:9090/bundles/pv-digivote/app/jury.html`
-- Moderator: `http://localhost:9090/bundles/pv-digivote/app/tablet.html`
+- Moderator: `http://localhost:9090/bundles/pv-digivote/graphics/tablet.html`
 - Beamer A: `http://localhost:9090/bundles/pv-digivote/graphics/beamer-a.html`
 - Beamer B: `http://localhost:9090/bundles/pv-digivote/graphics/beamer-b.html`
 

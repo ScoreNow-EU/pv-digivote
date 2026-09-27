@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { DEFAULT_POINT_SCALE, validateEscBallot, type Act, type EventConfig, type ShowPhase, type ShowState } from "@pv/domain";
 import { demoActs, demoJurors, demoScores } from "./demo-data";
 import { CountryFlag } from "./CountryFlag";
@@ -40,6 +40,82 @@ const phaseLabels: Record<ShowPhase, string> = {
   ARCHIVIERT: "Archiviert"
 };
 
+// Phasen ohne inhaltliches Reveal: Beamer zeigt hier einen ruhigen Status-Screen
+// statt einer Rangliste oder Jury-Reveal-Optik, damit z.B. während des offenen
+// Votings keine Punkte sichtbar werden.
+const IDLE_BEAMER_PHASES: readonly ShowPhase[] = [
+  "SETUP",
+  "BEREIT",
+  "AUFTRITT",
+  "VOTING_BEREIT",
+  "VOTING_OFFEN",
+  "VOTING_GESCHLOSSEN",
+  "VALIDIERUNG",
+  "STICHWAHL",
+  "STICHWAHL_OFFEN",
+  "STICHWAHL_GESCHLOSSEN",
+  "ARCHIVIERT"
+];
+
+const beamerIdleCopy: Partial<Record<ShowPhase, string>> = {
+  SETUP: "Die Bühne wird vorbereitet.",
+  BEREIT: "Die Show startet in Kürze.",
+  AUFTRITT: "Die Acts treten live auf.",
+  VOTING_BEREIT: "Das Voting startet in Kürze.",
+  VOTING_OFFEN: "Jetzt abstimmen.",
+  VOTING_GESCHLOSSEN: "Die Abstimmung ist geschlossen.",
+  VALIDIERUNG: "Die Stimmen werden validiert.",
+  STICHWAHL: "Es gibt einen Gleichstand.",
+  STICHWAHL_OFFEN: "Stichwahl – jetzt abstimmen.",
+  STICHWAHL_GESCHLOSSEN: "Die Stichwahl ist geschlossen.",
+  ARCHIVIERT: "Die Show ist beendet."
+};
+
+// Lineare Show-Reihenfolge für die manuelle Phasenwahl der Regie. Stichwahl-
+// Phasen werden ausschließlich über die Stichwahl-Buttons gesetzt, nicht über
+// das Dropdown, deshalb tauchen sie hier nicht auf.
+const MANUAL_PHASE_ORDER: readonly ShowPhase[] = [
+  "SETUP",
+  "BEREIT",
+  "AUFTRITT",
+  "VOTING_BEREIT",
+  "VOTING_OFFEN",
+  "VOTING_GESCHLOSSEN",
+  "VALIDIERUNG",
+  "JURY_REVEAL",
+  "PUBLIC_REVEAL",
+  "FINALE",
+  "ARCHIVIERT"
+];
+
+// Sobald die Jury-Wertung erreicht oder abgeschlossen ist, dürfen frühere
+// Phasen (und damit ein erneutes Klarname-Reveal) nicht mehr angewählt werden.
+function isJuryRevealStartedOrPast(phase: ShowPhase): boolean {
+  const orderIndex = MANUAL_PHASE_ORDER.indexOf(phase);
+  if (orderIndex === -1) return true; // Stichwahl-Phasen liegen immer danach.
+  return orderIndex >= MANUAL_PHASE_ORDER.indexOf("JURY_REVEAL");
+}
+
+// Sobald die Show über die Jury-Wertung hinaus ist, dürfen die Jury-Reveal-
+// Buttons die Show nicht mehr zurück in JURY_REVEAL zwingen.
+function isJuryRevealFinished(phase: ShowPhase): boolean {
+  const orderIndex = MANUAL_PHASE_ORDER.indexOf(phase);
+  if (orderIndex === -1) return true; // Stichwahl-Phasen liegen immer danach.
+  return orderIndex > MANUAL_PHASE_ORDER.indexOf("JURY_REVEAL");
+}
+
+function BeamerIdleScreen({ phase }: { phase: ShowPhase }) {
+  return (
+    <BeamerFrame>
+      <main className="beamer-status">
+        <p>PastEurovision 2026</p>
+        <h1>{phaseLabels[phase]}</h1>
+        <span>{beamerIdleCopy[phase]}</span>
+      </main>
+    </BeamerFrame>
+  );
+}
+
 interface AppProps {
   surface: string;
 }
@@ -78,6 +154,7 @@ export function App({ surface }: AppProps) {
       acts={acts}
       scores={scores}
       revealedJuryPoints={revealedJuryPoints}
+      currentBulkAward={currentBulkAward}
     />
   );
   if (surface === "beamer-a") return (
@@ -91,7 +168,13 @@ export function App({ surface }: AppProps) {
     />
   );
   if (surface === "beamer-b") return (
-    <BeamerBSurface state={showState} acts={acts} scores={scores} revealedJuryPoints={revealedJuryPoints} />
+    <BeamerBSurface
+      state={showState}
+      acts={acts}
+      scores={scores}
+      revealedJuryPoints={revealedJuryPoints}
+      currentBulkAward={currentBulkAward}
+    />
   );
   return (
     <ControllerSurface
@@ -105,6 +188,7 @@ export function App({ surface }: AppProps) {
       config={live.bootstrap?.event.config}
       requiresRunoff={live.scores?.requiresRunoff ?? false}
       runoff={live.bootstrap?.runoff ?? null}
+      currentBulkAward={currentBulkAward}
     />
   );
 }
@@ -138,7 +222,8 @@ function ControllerSurface({
   scores,
   config,
   requiresRunoff,
-  runoff
+  runoff,
+  currentBulkAward
 }: {
   state: ShowState;
   send: (command: ShowCommand) => void;
@@ -150,6 +235,7 @@ function ControllerSurface({
   config: EventConfig | undefined;
   requiresRunoff: boolean;
   runoff: BootstrapResponse["runoff"];
+  currentBulkAward: JuryBulkAwardEntry[];
 }) {
   const [activeSection, setActiveSection] = useState<ControllerSection>("show");
   const [adminConfig, setAdminConfig] = useState<AdminConfigResponse>();
@@ -226,8 +312,9 @@ function ControllerSurface({
   const regieActs: DisplayAct[] = adminConfig?.acts ?? acts;
   const regieJurors = adminConfig ? adminConfig.jurors.filter((juror) => juror.enabled) : jurors;
   const currentJuror = regieJurors[state.currentJurorIndex % regieJurors.length] ?? demoJurors[0]!;
-  const nextJuror = regieJurors[(state.currentJurorIndex + 1) % regieJurors.length] ?? demoJurors[1]!;
   const currentAct: DisplayAct = regieActs.find((act) => act.id === state.currentActId) ?? regieActs[0] ?? demoActs[0]!;
+  const juryRevealLocked = isJuryRevealStartedOrPast(state.phase);
+  const juryRevealFinished = isJuryRevealFinished(state.phase);
 
   return (
     <div className="controller-shell">
@@ -273,8 +360,22 @@ function ControllerSurface({
             <div className="phase-control">
               <label htmlFor="phase">Showphase</label>
               <select id="phase" value={state.phase} onChange={(event) => send({ type: "set-phase", phase: event.target.value as ShowPhase })}>
-                {Object.entries(phaseLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                {MANUAL_PHASE_ORDER.map((value) => (
+                  <option
+                    key={value}
+                    value={value}
+                    disabled={juryRevealLocked && MANUAL_PHASE_ORDER.indexOf(value) < MANUAL_PHASE_ORDER.indexOf("JURY_REVEAL")}
+                  >
+                    {phaseLabels[value]}
+                  </option>
+                ))}
+                {!MANUAL_PHASE_ORDER.includes(state.phase) && (
+                  <option value={state.phase}>{phaseLabels[state.phase]}</option>
+                )}
               </select>
+              {juryRevealLocked && (
+                <small className="field-help">Vor der Jury-Wertung liegende Phasen sind jetzt gesperrt.</small>
+              )}
             </div>
           </div>
           <div className="timecode" aria-label={`Timecode ${state.timecode.value}`}>
@@ -297,55 +398,81 @@ function ControllerSurface({
                 <h2 id="act-control-title">{String(currentAct.startNumber).padStart(2, "0")} · {currentAct.country.displayName}</h2>
                 <p>{currentAct.pseudonym} · {currentAct.identityRevealed ? (currentAct.artistNames?.join(", ") || "enthüllt") : "noch verborgen"}</p>
               </div>
-              <button className="button button--quiet" type="button" disabled={state.paused} onClick={() => send({ type: "reveal-next-act" })}>
+              <button
+                className="button button--quiet"
+                type="button"
+                disabled={state.paused || juryRevealLocked}
+                onClick={() => send({ type: "reveal-next-act" })}
+                title={juryRevealLocked ? "Nach Beginn der Jury-Wertung nicht mehr möglich." : undefined}
+              >
                 Klarname manuell enthüllen
               </button>
             </section>
             <section className="panel panel--primary" aria-labelledby="next-step-title">
-              <div className="panel__head">
-                <div>
-                  <p className="panel__label">Aktueller Reveal</p>
-                  <h2 id="next-step-title">{currentJuror.displayName}</h2>
-                </div>
-                <span className="point-medallion">
-                  {state.currentRevealPoint === 0 ? "1–7" : state.currentRevealPoint}
-                </span>
-              </div>
-              <p className="panel__copy">
-                {state.currentRevealPoint === 0
-                  ? "Die kleinen Punkte werden gesammelt eingebucht."
-                  : `${state.currentRevealPoint} Punkte werden einzeln auf Beamer A enthüllt.`}
-              </p>
-              <div className="button-row">
-                <button
-                  className="button button--accent"
-                  type="button"
-                  disabled={state.paused}
-                  onClick={() => send({ type: "advance-jury-reveal" })}
-                >
-                  Nächsten Punkt zeigen
-                </button>
-                <button
-                  className="button button--quiet"
-                  type="button"
-                  disabled={state.paused}
-                  onClick={() => send({ type: "rewind-jury-reveal" })}
-                >
-                  Schritt zurück
-                </button>
-              </div>
+              {juryRevealFinished ? (
+                <>
+                  <div className="panel__head">
+                    <div>
+                      <p className="panel__label">Jury-Wertung</p>
+                      <h2 id="next-step-title">Abgeschlossen</h2>
+                    </div>
+                  </div>
+                  <p className="panel__copy">
+                    Alle Jury-Punkte wurden enthüllt. Ein Zurückspringen ist ab hier nicht mehr möglich.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="panel__head">
+                    <div>
+                      <p className="panel__label">Aktueller Reveal</p>
+                      <h2 id="next-step-title">{currentJuror.displayName}</h2>
+                    </div>
+                    <span className="point-medallion">
+                      {state.currentRevealPoint === -1 ? "?" : state.currentRevealPoint === 0 ? "1–7" : state.currentRevealPoint}
+                    </span>
+                  </div>
+                  <p className="panel__copy">
+                    {state.currentRevealPoint === -1
+                      ? "Der Name wird angekündigt. Die Punkte folgen erst beim nächsten Klick."
+                      : state.currentRevealPoint === 0
+                        ? "Die kleinen Punkte werden gesammelt auf Beamer A enthüllt."
+                        : `${state.currentRevealPoint} Punkte werden einzeln auf Beamer A enthüllt.`}
+                  </p>
+                  <div className="button-row">
+                    <button
+                      className="button button--accent"
+                      type="button"
+                      disabled={state.paused}
+                      onClick={() => send({ type: "advance-jury-reveal" })}
+                    >
+                      {state.currentRevealPoint === -1 ? "Punkte 1–7 zeigen" : "Nächsten Punkt zeigen"}
+                    </button>
+                    <button
+                      className="button button--quiet"
+                      type="button"
+                      disabled={state.paused}
+                      onClick={() => send({ type: "rewind-jury-reveal" })}
+                    >
+                      Schritt zurück
+                    </button>
+                  </div>
+                </>
+              )}
             </section>
 
-            <section className="panel jury-preview" aria-labelledby="moderator-preview-title">
-              <div>
-                <p className="panel__label">Moderatorvorschau</p>
-                <h2 id="moderator-preview-title">{state.currentRevealPoint === 12 ? nextJuror.displayName : currentJuror.displayName}</h2>
-                <p>Auf dem iPad freigegeben, auf dem Beamer noch verborgen.</p>
-              </div>
-              <span className="visibility-sequence" aria-label="Moderator sichtbar, Beamer verborgen">
-                <b>Tablet</b><i aria-hidden="true" /><span>Beamer</span>
-              </span>
-            </section>
+            {!juryRevealFinished && (
+              <section className="panel jury-preview" aria-labelledby="moderator-preview-title">
+                <div>
+                  <p className="panel__label">Moderator-Tablet</p>
+                  <h2 id="moderator-preview-title">{currentJuror.displayName}</h2>
+                  <p>Zeigt denselben Stand wie Beamer A, mit 3-Sekunden-Countdown vor der Ansage.</p>
+                </div>
+                <span className="visibility-sequence" aria-label="Tablet und Beamer synchron, mit kurzer Verzögerung">
+                  <b>Beamer</b><i aria-hidden="true" /><span>Tablet +3s</span>
+                </span>
+              </section>
+            )}
 
             <section className="panel voting-control" aria-labelledby="voting-title">
               <div className="panel__head panel__head--compact">
@@ -410,7 +537,13 @@ function ControllerSurface({
             )}
           </div>
 
-          <Scoreboard phase={state.phase} acts={regieActs} scores={scores} showAllPublic />
+          <Scoreboard
+            phase={state.phase}
+            acts={regieActs}
+            scores={scores}
+            showAllPublic
+            justAwarded={computeJustAwarded(state, currentBulkAward)}
+          />
         </div>
       </main> : (
         <main className="controller-main admin-main">
@@ -858,13 +991,21 @@ function ConfigurationPanel({ config, onSave }: { config: EventConfig | undefine
   );
 }
 
+function computeJustAwarded(state: ShowState, currentBulkAward: readonly JuryBulkAwardEntry[]): JuryBulkAwardEntry[] {
+  if (state.phase !== "JURY_REVEAL") return [];
+  if (state.currentRevealPoint === -1) return [];
+  if (state.currentRevealPoint === 0) return [...currentBulkAward];
+  return state.currentActId ? [{ actId: state.currentActId, points: state.currentRevealPoint }] : [];
+}
+
 function getRankedScores(
   phase: ShowPhase,
   acts: DisplayAct[],
   scores: DisplayScore[],
   revealedPublicActIds: readonly string[],
   showAllPublic: boolean,
-  juryPointsByAct: Record<string, number> | undefined
+  juryPointsByAct: Record<string, number> | undefined,
+  justAwarded: ReadonlyMap<string, number> | undefined
 ) {
   const revealSet = new Set(revealedPublicActIds);
   const allPublicVisible = showAllPublic || ["FINALE", "STICHWAHL", "STICHWAHL_OFFEN", "STICHWAHL_GESCHLOSSEN"].includes(phase);
@@ -872,12 +1013,14 @@ function getRankedScores(
     .map((score) => {
       const publicVisible = allPublicVisible || (phase === "PUBLIC_REVEAL" && revealSet.has(score.actId));
       const visibleJuryPoints = juryPointsByAct?.[score.actId] ?? score.juryPoints;
+      const visiblePublicPoints = publicVisible ? score.publicPoints : 0;
       return {
         ...score,
         act: acts.find((act) => act.id === score.actId)!,
         visibleJuryPoints,
-        visiblePublicPoints: publicVisible ? score.publicPoints : 0,
-        total: visibleJuryPoints + (publicVisible ? score.publicPoints : 0)
+        visiblePublicPoints,
+        total: visibleJuryPoints + visiblePublicPoints,
+        justAwarded: justAwarded?.get(score.actId)
       };
     })
     .filter((row) => Boolean(row.act))
@@ -897,7 +1040,8 @@ function Scoreboard({
   projector = false,
   revealedPublicActIds = [],
   showAllPublic = false,
-  juryPointsByAct
+  juryPointsByAct,
+  justAwarded
 }: {
   phase: ShowPhase;
   acts: DisplayAct[];
@@ -906,11 +1050,19 @@ function Scoreboard({
   revealedPublicActIds?: readonly string[];
   showAllPublic?: boolean;
   juryPointsByAct?: Record<string, number> | undefined;
+  justAwarded?: readonly JuryBulkAwardEntry[] | undefined;
 }) {
-  const rows = useMemo(
-    () => getRankedScores(phase, acts, scores, revealedPublicActIds, showAllPublic, juryPointsByAct),
-    [phase, acts, scores, revealedPublicActIds, showAllPublic, juryPointsByAct]
+  const justAwardedMap = useMemo(
+    () => justAwarded && justAwarded.length > 0 ? new Map(justAwarded.map((entry) => [entry.actId, entry.points])) : undefined,
+    [justAwarded]
   );
+  const rows = useMemo(
+    () => getRankedScores(phase, acts, scores, revealedPublicActIds, showAllPublic, juryPointsByAct, justAwardedMap),
+    [phase, acts, scores, revealedPublicActIds, showAllPublic, juryPointsByAct, justAwardedMap]
+  );
+  // Spaltenweise Reihenfolge: Platz 1..n oben-links nach unten, danach rechts weiter
+  // (statt zeilenweise links-rechts), daher fixe Zeilenzahl für grid-auto-flow: column.
+  const rowCount = Math.ceil(rows.length / 2);
   return (
     <section className={projector ? "scoreboard scoreboard--projector" : "scoreboard panel"} aria-labelledby="scoreboard-title">
       <header className="scoreboard__head">
@@ -920,7 +1072,7 @@ function Scoreboard({
         </div>
         <span>{rows.length} Acts</span>
       </header>
-      <ol className="score-list">
+      <ol className="score-list" style={projector ? { gridTemplateRows: `repeat(${rowCount}, minmax(0, 1fr))` } : undefined}>
         {rows.map((row, index) => (
           <li key={row.actId} className={index < 3 ? `score-row score-row--top-${index + 1}` : "score-row"}>
             <span className="score-row__rank">{index + 1}</span>
@@ -931,8 +1083,7 @@ function Scoreboard({
               fallback={row.act.country.flag}
             />
             <span className="score-row__country">{row.act.country.displayName}</span>
-            <span className="score-row__jury"><small>Jury</small>{row.visibleJuryPoints}</span>
-            {row.visiblePublicPoints > 0 && <span className="score-row__public"><small>Public</small>{row.visiblePublicPoints}</span>}
+            {row.justAwarded !== undefined && <span className="score-row__award">+{row.justAwarded}</span>}
             <strong className="score-row__total">{row.total}</strong>
           </li>
         ))}
@@ -1312,7 +1463,8 @@ function TabletSurface({
   jurors,
   acts,
   scores,
-  revealedJuryPoints
+  revealedJuryPoints,
+  currentBulkAward = []
 }: {
   state: ShowState;
   connected: boolean;
@@ -1320,11 +1472,11 @@ function TabletSurface({
   acts: DisplayAct[];
   scores: DisplayScore[];
   revealedJuryPoints?: Record<string, number> | undefined;
+  currentBulkAward?: JuryBulkAwardEntry[] | undefined;
 }) {
   const juryList = jurors.length > 0 ? jurors : demoJurors;
   const currentJuror = juryList[state.currentJurorIndex % juryList.length]!;
-  const nextJuror = juryList[(state.currentJurorIndex + 1) % juryList.length]!;
-  const previewJuror = state.currentRevealPoint === 12 ? nextJuror : currentJuror;
+  const currentAwardAct = acts.find((act) => act.id === state.currentActId);
   const publicOrder = [...scores].sort((left, right) =>
     left.juryPoints - right.juryPoints
     || (right.rank ?? 0) - (left.rank ?? 0)
@@ -1333,6 +1485,29 @@ function TabletSurface({
   const nextPublic = publicOrder[state.currentPublicRevealIndex];
   const nextPublicAct = acts.find((act) => act.id === nextPublic?.actId);
   const publicMode = state.phase === "PUBLIC_REVEAL";
+  const juryRevealMode = state.phase === "JURY_REVEAL";
+
+  // Nach jedem neuen Reveal-Schritt läuft ein kurzer Countdown, bevor der
+  // Moderator ansagen darf – erst bei 0 wird der Ansage-Text sichtbar.
+  const stepKey = `${state.currentJurorIndex}:${state.currentRevealPoint}`;
+  const [countdown, setCountdown] = useState(0);
+  const previousStepKey = useRef(stepKey);
+
+  useEffect(() => {
+    if (!juryRevealMode) return;
+    if (previousStepKey.current === stepKey) return;
+    previousStepKey.current = stepKey;
+    setCountdown(3);
+  }, [stepKey, juryRevealMode]);
+
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = window.setTimeout(() => setCountdown((value) => Math.max(0, value - 1)), 1_000);
+    return () => window.clearTimeout(timer);
+  }, [countdown]);
+
+  const readyToAnnounce = !juryRevealMode || countdown <= 0;
+
   return (
     <div className="tablet-shell">
       <header className="tablet-head">
@@ -1340,19 +1515,6 @@ function TabletSurface({
         <StatusDot tone={connected ? "live" : "idle"}>{connected ? "Live" : "Simulation"}</StatusDot>
       </header>
       <main className="tablet-main">
-        <div className="tablet-now">
-          <span>Auf dem Beamer</span>
-          <strong>{currentJuror.displayName}</strong>
-        </div>
-        <section className="tablet-next" aria-labelledby="tablet-next-title">
-          <p>Als Nächstes vorlesen</p>
-          <h1 id="tablet-next-title">{publicMode ? (nextPublicAct?.country.displayName ?? "Finale") : previewJuror.displayName}</h1>
-          <div className="tablet-points">
-            <span>Nächster Schritt</span>
-            <strong>{publicMode ? (nextPublic?.publicPoints ?? "—") : state.currentRevealPoint === 12 ? "1–7" : state.currentRevealPoint === 10 ? "12" : state.currentRevealPoint === 8 ? "10" : "8"}</strong>
-            <small>Punkte</small>
-          </div>
-        </section>
         <div className="tablet-scoreboard">
           <Scoreboard
             phase={state.phase}
@@ -1361,8 +1523,42 @@ function TabletSurface({
             projector
             revealedPublicActIds={state.revealedPublicActIds}
             juryPointsByAct={revealedJuryPoints}
+            justAwarded={computeJustAwarded(state, currentBulkAward)}
           />
         </div>
+        <section className="tablet-next" aria-labelledby="tablet-next-title">
+          {juryRevealMode && !readyToAnnounce ? (
+            <div className="tablet-countdown" aria-live="polite">
+              <span>Gleich geht's weiter</span>
+              <strong>{countdown}</strong>
+            </div>
+          ) : juryRevealMode ? (
+            <>
+              <p>Jetzt ansagen</p>
+              <h1 id="tablet-next-title">
+                {state.currentRevealPoint === -1 ? currentJuror.displayName : currentAwardAct?.country.displayName ?? "—"}
+              </h1>
+              <div className="tablet-points">
+                <span>{state.currentRevealPoint === -1 ? "Name" : "Punkte"}</span>
+                <strong>{state.currentRevealPoint === -1 ? "★" : state.currentRevealPoint === 0 ? "1–7" : state.currentRevealPoint}</strong>
+              </div>
+            </>
+          ) : publicMode ? (
+            <>
+              <p>Als Nächstes vorlesen</p>
+              <h1 id="tablet-next-title">{nextPublicAct?.country.displayName ?? "Finale"}</h1>
+              <div className="tablet-points">
+                <span>Punkte</span>
+                <strong>{nextPublic?.publicPoints ?? "—"}</strong>
+              </div>
+            </>
+          ) : (
+            <>
+              <p>Status</p>
+              <h1 id="tablet-next-title">{phaseLabels[state.phase]}</h1>
+            </>
+          )}
+        </section>
       </main>
       <footer className="tablet-foot">Die Regie schaltet den nächsten Schritt frei.</footer>
     </div>
@@ -1397,6 +1593,9 @@ function BeamerASurface({
   const juryList = jurors.length > 0 ? jurors : demoJurors;
   const juror = juryList[state.currentJurorIndex % juryList.length]!;
   const act = acts.find((entry) => entry.id === state.currentActId) ?? acts[0] ?? demoActs[0]!;
+  if (IDLE_BEAMER_PHASES.includes(state.phase)) {
+    return <BeamerIdleScreen phase={state.phase} />;
+  }
   if (state.phase === "PUBLIC_REVEAL" || state.phase === "FINALE") {
     return (
       <BeamerFrame>
@@ -1417,7 +1616,17 @@ function BeamerASurface({
       </BeamerFrame>
     );
   }
-  if (state.phase === "JURY_REVEAL" && state.currentRevealPoint === 0) {
+  if (state.currentRevealPoint === -1) {
+    return (
+      <BeamerFrame>
+        <main className="beamer-announce">
+          <p>Die Jury hört jetzt von</p>
+          <h1>{juror.displayName}</h1>
+        </main>
+      </BeamerFrame>
+    );
+  }
+  if (state.currentRevealPoint === 0) {
     return (
       <BeamerFrame>
         <main className="beamer-bulk">
@@ -1474,13 +1683,18 @@ function BeamerBSurface({
   state,
   acts,
   scores,
-  revealedJuryPoints
+  revealedJuryPoints,
+  currentBulkAward = []
 }: {
   state: ShowState;
   acts: DisplayAct[];
   scores: DisplayScore[];
   revealedJuryPoints?: Record<string, number> | undefined;
+  currentBulkAward?: JuryBulkAwardEntry[] | undefined;
 }) {
+  if (IDLE_BEAMER_PHASES.includes(state.phase)) {
+    return <BeamerIdleScreen phase={state.phase} />;
+  }
   return (
     <BeamerFrame>
       <main className="beamer-ranking">
@@ -1495,6 +1709,7 @@ function BeamerBSurface({
           projector
           revealedPublicActIds={state.revealedPublicActIds}
           juryPointsByAct={revealedJuryPoints}
+          justAwarded={computeJustAwarded(state, currentBulkAward)}
         />
       </main>
     </BeamerFrame>

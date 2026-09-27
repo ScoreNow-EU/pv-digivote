@@ -105,7 +105,7 @@ export const showStateSchema = z.object({
   paused: z.boolean(),
   currentActId: entityIdSchema.nullable(),
   currentJurorIndex: z.number().int().nonnegative(),
-  currentRevealPoint: z.union([z.literal(0), z.literal(8), z.literal(10), z.literal(12)]),
+  currentRevealPoint: z.union([z.literal(-1), z.literal(0), z.literal(8), z.literal(10), z.literal(12)]),
   currentPublicRevealIndex: z.number().int().nonnegative().default(0),
   revealedPublicActIds: z.array(entityIdSchema).default([]),
   voting: z.object({
@@ -134,7 +134,7 @@ export const defaultShowState: ShowState = {
   paused: false,
   currentActId: null,
   currentJurorIndex: 0,
-  currentRevealPoint: 0,
+  currentRevealPoint: -1,
   currentPublicRevealIndex: 0,
   revealedPublicActIds: [],
   voting: {
