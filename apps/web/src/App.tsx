@@ -510,7 +510,7 @@ function ControllerSurface({
               <button
                 className="button button--accent button--wide"
                 type="button"
-                disabled={state.paused || state.voting.publicOpen}
+                disabled={state.paused || state.voting.publicOpen || Boolean(state.pendingPublicReveal)}
                 onClick={() => send({ type: "advance-public-reveal" })}
               >
                 Nächste Publikumswertung zeigen
@@ -519,6 +519,7 @@ function ControllerSurface({
                 <button
                   className="button button--quiet button--wide"
                   type="button"
+                  disabled={Boolean(state.pendingPublicReveal)}
                   onClick={() => send({ type: "reset-public-reveal" })}
                 >
                   Publikums-Reveal zurücksetzen
@@ -547,7 +548,7 @@ function ControllerSurface({
             acts={regieActs}
             scores={scores}
             showAllPublic
-            justAwarded={computeJustAwarded(state, currentBulkAward)}
+            justAwarded={computeJustAwarded(state, currentBulkAward, scores)}
           />
         </div>
       </main> : (
@@ -996,11 +997,40 @@ function ConfigurationPanel({ config, onSave }: { config: EventConfig | undefine
   );
 }
 
-function computeJustAwarded(state: ShowState, currentBulkAward: readonly JuryBulkAwardEntry[]): JuryBulkAwardEntry[] {
-  if (state.phase !== "JURY_REVEAL") return [];
-  if (state.currentRevealPoint === -1) return [];
-  if (state.currentRevealPoint === 0) return [...currentBulkAward];
-  return state.currentActId ? [{ actId: state.currentActId, points: state.currentRevealPoint }] : [];
+// Zählt bis zu einem vom Server vorgegebenen Zeitpunkt herunter (revealAt),
+// zu dem der Beamer einen anstehenden Reveal übernimmt. Wird für Jury- und
+// Publikums-Reveal gleichermaßen genutzt.
+function useRevealCountdown(revealAt: string | undefined): number {
+  const [countdown, setCountdown] = useState(0);
+  useEffect(() => {
+    if (!revealAt) {
+      setCountdown(0);
+      return;
+    }
+    const revealAtMs = new Date(revealAt).getTime();
+    const tick = () => setCountdown(Math.max(0, Math.ceil((revealAtMs - Date.now()) / 1_000)));
+    tick();
+    const timer = window.setInterval(tick, 250);
+    return () => window.clearInterval(timer);
+  }, [revealAt]);
+  return countdown;
+}
+
+function computeJustAwarded(
+  state: ShowState,
+  currentBulkAward: readonly JuryBulkAwardEntry[],
+  scores: readonly DisplayScore[]
+): JuryBulkAwardEntry[] {
+  if (state.phase === "JURY_REVEAL") {
+    if (state.currentRevealPoint === -1) return [];
+    if (state.currentRevealPoint === 0) return [...currentBulkAward];
+    return state.currentActId ? [{ actId: state.currentActId, points: state.currentRevealPoint }] : [];
+  }
+  if (state.phase === "PUBLIC_REVEAL" && state.currentActId) {
+    const score = scores.find((entry) => entry.actId === state.currentActId);
+    return score ? [{ actId: state.currentActId, points: score.publicPoints }] : [];
+  }
+  return [];
 }
 
 function getRankedScores(
@@ -1500,29 +1530,32 @@ function TabletSurface({
   const nextPublicAct = acts.find((act) => act.id === nextPublic?.actId);
   const publicMode = state.phase === "PUBLIC_REVEAL";
   const juryRevealMode = state.phase === "JURY_REVEAL";
-  const pending = state.pendingJuryReveal;
+  const juryJustFinished = publicMode && state.currentPublicRevealIndex === 0 && state.revealedPublicActIds.length === 0;
+  const pendingJury = state.pendingJuryReveal;
+  const pendingPublic = state.pendingPublicReveal;
 
   // Solange ein Reveal-Schritt ansteht, zählt das Tablet bis zum exakten
   // Umspring-Zeitpunkt des Beamers herunter (revealAt kommt vom Server),
   // statt selbst eine künstliche Verzögerung einzuführen. Ohne anstehenden
   // Schritt zeigt das Tablet permanent die Vorschau auf den NÄCHSTEN Klick
-  // (nextJuryPreview vom Server), ohne Countdown.
-  const [countdown, setCountdown] = useState(0);
-  useEffect(() => {
-    if (!pending) {
-      setCountdown(0);
-      return;
-    }
-    const revealAtMs = new Date(pending.revealAt).getTime();
-    const tick = () => setCountdown(Math.max(0, Math.ceil((revealAtMs - Date.now()) / 1_000)));
-    tick();
-    const timer = window.setInterval(tick, 250);
-    return () => window.clearInterval(timer);
-  }, [pending?.revealAt]);
+  // (nextJuryPreview vom Server bzw. die lokal berechnete Publikums-Vorschau),
+  // ganz ohne Countdown.
+  const juryCountdown = useRevealCountdown(pendingJury?.revealAt);
+  const publicCountdown = useRevealCountdown(pendingPublic?.revealAt);
 
-  const preview = pending ?? nextJuryPreview;
+  const preview = pendingJury ?? nextJuryPreview;
   const previewJuror = preview ? juryList[preview.currentJurorIndex % juryList.length] : undefined;
   const previewAct = preview?.actId ? acts.find((act) => act.id === preview.actId) : undefined;
+  const pendingPublicAct = pendingPublic ? acts.find((act) => act.id === pendingPublic.actId) : undefined;
+
+  const overlay = pendingJury
+    ? {
+        countdown: juryCountdown,
+        preview: pendingJury.currentRevealPoint === -1 ? previewJuror?.displayName ?? "—" : previewAct?.country.displayName ?? "—"
+      }
+    : pendingPublic
+      ? { countdown: publicCountdown, preview: pendingPublicAct?.country.displayName ?? "—" }
+      : null;
 
   return (
     <div className="tablet-shell">
@@ -1540,7 +1573,7 @@ function TabletSurface({
             compact
             revealedPublicActIds={state.revealedPublicActIds}
             juryPointsByAct={revealedJuryPoints}
-            justAwarded={computeJustAwarded(state, currentBulkAward)}
+            justAwarded={computeJustAwarded(state, currentBulkAward, scores)}
           />
         </div>
         <section className="tablet-next" aria-labelledby="tablet-next-title">
@@ -1568,7 +1601,7 @@ function TabletSurface({
             </>
           ) : publicMode ? (
             <>
-              <p>Als Nächstes vorlesen</p>
+              <p>{juryJustFinished ? "Alle Jury-Punkte enthüllt · weiter mit dem Publikumsvoting" : "Als Nächstes vorlesen"}</p>
               <h1 id="tablet-next-title">{nextPublicAct?.country.displayName ?? "Finale"}</h1>
               <div className="tablet-points">
                 <span>Punkte</span>
@@ -1584,13 +1617,11 @@ function TabletSurface({
         </section>
       </main>
       <footer className="tablet-foot">Die Regie schaltet den nächsten Schritt frei.</footer>
-      {pending && (
+      {overlay && (
         <div className="tablet-countdown-overlay" role="status" aria-live="assertive">
           <span className="tablet-countdown-overlay__label">Gleich auf dem Beamer</span>
-          <strong className="tablet-countdown-overlay__number">{countdown}</strong>
-          <span className="tablet-countdown-overlay__preview">
-            {pending.currentRevealPoint === -1 ? previewJuror?.displayName ?? "—" : previewAct?.country.displayName ?? "—"}
-          </span>
+          <strong className="tablet-countdown-overlay__number">{overlay.countdown}</strong>
+          <span className="tablet-countdown-overlay__preview">{overlay.preview}</span>
         </div>
       )}
     </div>
@@ -1643,6 +1674,7 @@ function BeamerASurface({
             projector
             revealedPublicActIds={state.revealedPublicActIds}
             juryPointsByAct={revealedJuryPoints}
+            justAwarded={computeJustAwarded(state, currentBulkAward, scores)}
           />
         </main>
       </BeamerFrame>
@@ -1741,7 +1773,7 @@ function BeamerBSurface({
           projector
           revealedPublicActIds={state.revealedPublicActIds}
           juryPointsByAct={revealedJuryPoints}
-          justAwarded={computeJustAwarded(state, currentBulkAward)}
+          justAwarded={computeJustAwarded(state, currentBulkAward, scores)}
         />
       </main>
     </BeamerFrame>

@@ -114,6 +114,10 @@ export const showStateSchema = z.object({
     actId: entityIdSchema.nullable(),
     revealAt: z.string().datetime()
   }).nullable().default(null),
+  pendingPublicReveal: z.object({
+    actId: entityIdSchema,
+    revealAt: z.string().datetime()
+  }).nullable().default(null),
   voting: z.object({
     publicOpen: z.boolean(),
     juryOpen: z.boolean(),
@@ -144,6 +148,7 @@ export const defaultShowState: ShowState = {
   currentPublicRevealIndex: 0,
   revealedPublicActIds: [],
   pendingJuryReveal: null,
+  pendingPublicReveal: null,
   voting: {
     publicOpen: false,
     juryOpen: false,

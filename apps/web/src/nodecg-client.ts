@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { showPhaseSchema, showStateSchema, type EventConfig, type ShowState } from "@pv/domain";
-import { demoShowState } from "./demo-data";
+import { demoJurors, demoShowState } from "./demo-data";
 
 interface BrowserReplicant<T> {
   value?: T;
@@ -136,6 +136,10 @@ export function useShowState(): [ShowState, (command: ShowCommand) => void, bool
       const atEnd = index === sequence.length - 1;
       const nextPoint = atEnd ? sequence[0]! : sequence[index + 1]!;
       const nextJurorIndex = atEnd ? current.currentJurorIndex + 1 : current.currentJurorIndex;
+      if (nextJurorIndex >= demoJurors.length) {
+        // Alle Jurys durchgeklickt: direkt weiter zum Publikums-Reveal.
+        return { ...current, phase: "PUBLIC_REVEAL", pendingJuryReveal: null, revision: current.revision + 1 };
+      }
       const revealAt = new Date(Date.now() + JURY_REVEAL_DELAY_MS).toISOString();
       window.setTimeout(() => {
         setState((latest) => (latest.paused ? latest : {

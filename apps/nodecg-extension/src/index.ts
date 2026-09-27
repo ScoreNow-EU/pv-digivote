@@ -194,14 +194,14 @@ function extension(nodecg: NodeCG.ServerAPI): void {
   nodecg.listenFor("pv:set-phase", (payload: unknown) => {
     const phase = showPhaseSchema.parse(payload);
     clearPendingReveal();
-    update({ phase, pendingJuryReveal: null });
+    update({ phase, pendingJuryReveal: null, pendingPublicReveal: null });
   });
 
   nodecg.listenFor("pv:toggle-pause", () => {
     const current = readState();
     const pausing = !current.paused;
     if (pausing) clearPendingReveal();
-    update({ paused: pausing, ...(pausing ? { pendingJuryReveal: null } : {}) });
+    update({ paused: pausing, ...(pausing ? { pendingJuryReveal: null, pendingPublicReveal: null } : {}) });
   });
 
   nodecg.listenFor("pv:update-event-config", (payload: unknown) => {
@@ -264,6 +264,14 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       const jurors = bundle?.jurors.filter((juror) => juror.enabled) ?? [];
       const ballotsByJuror = bundle ? await getJuryBallotsByJuror(bundle.event.id) : new Map<string, BallotEntry[]>();
       const next = computeNextJuryStep(jurors, ballotsByJuror, current.currentJurorIndex, current.currentRevealPoint);
+
+      if (jurors.length > 0 && next.currentJurorIndex >= jurors.length) {
+        // Alle Jurys wurden durchgeklickt: direkt weiter zum Publikums-Reveal,
+        // kein Countdown für eine nicht existierende nächste Jury nötig.
+        update({ phase: "PUBLIC_REVEAL", pendingJuryReveal: null });
+        return;
+      }
+
       const juror = jurors[next.currentJurorIndex % Math.max(jurors.length, 1)];
 
       // Sofort für das Moderator-Tablet sichtbar machen (Vorschau + Countdown),
@@ -317,6 +325,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
   });
 
   nodecg.listenFor("pv:advance-public-reveal", () => {
+    clearPendingReveal();
     void getActiveEventBundle().then(async (bundle) => {
       if (!bundle) return;
       const config = eventConfigSchema.parse(bundle.event.config);
@@ -335,32 +344,45 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       const current = readState();
       const row = revealOrder[current.currentPublicRevealIndex];
       if (!row) {
-        update({ phase: "FINALE" });
+        update({ phase: "FINALE", pendingPublicReveal: null });
         return;
       }
       const act = bundle.acts.find((entry) => entry.id === row.actId);
-      update({
-        phase: "PUBLIC_REVEAL",
-        currentActId: row.actId,
-        currentPublicRevealIndex: current.currentPublicRevealIndex + 1,
-        revealedPublicActIds: [...new Set([...current.revealedPublicActIds, row.actId])]
-      });
-      emitBridgeCue({
-        eventType: "PUBLIC_POINTS_REVEAL",
-        actId: row.actId,
-        points: row.publicPoints,
-        countryIsoCode: act?.country.isoCode ?? null
-      });
+
+      // Sofort für das Moderator-Tablet sichtbar machen (Vorschau + Countdown),
+      // der Beamer bekommt den eigentlichen State erst nach der Wartezeit.
+      const revealAt = new Date(Date.now() + JURY_REVEAL_DELAY_MS).toISOString();
+      update({ pendingPublicReveal: { actId: row.actId, revealAt } });
+
+      pendingRevealTimer = setTimeout(() => {
+        pendingRevealTimer = undefined;
+        if (readState().paused) return;
+        update({
+          phase: "PUBLIC_REVEAL",
+          currentActId: row.actId,
+          currentPublicRevealIndex: current.currentPublicRevealIndex + 1,
+          revealedPublicActIds: [...new Set([...current.revealedPublicActIds, row.actId])],
+          pendingPublicReveal: null
+        });
+        emitBridgeCue({
+          eventType: "PUBLIC_POINTS_REVEAL",
+          actId: row.actId,
+          points: row.publicPoints,
+          countryIsoCode: act?.country.isoCode ?? null
+        });
+      }, JURY_REVEAL_DELAY_MS);
     }).catch((error: unknown) => nodecg.log.error(`Publikums-Reveal fehlgeschlagen: ${String(error)}`));
   });
 
   nodecg.listenFor("pv:reset-public-reveal", () => {
+    clearPendingReveal();
     const current = readState();
     update({
       phase: "VOTING_GESCHLOSSEN",
       currentPublicRevealIndex: 0,
       revealedPublicActIds: [],
-      currentActId: current.currentActId
+      currentActId: current.currentActId,
+      pendingPublicReveal: null
     });
   });
 
@@ -797,6 +819,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       currentPublicRevealIndex: 0,
       revealedPublicActIds: [],
       pendingJuryReveal: null,
+      pendingPublicReveal: null,
       screens: { a: "RUHE", b: "RANGLISTE" }
     });
     await refreshVotingCounts(bundle);

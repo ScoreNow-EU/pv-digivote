@@ -61,6 +61,7 @@ export const demoShowState: ShowState = {
   currentPublicRevealIndex: 0,
   revealedPublicActIds: [],
   pendingJuryReveal: null,
+  pendingPublicReveal: null,
   voting: {
     publicOpen: false,
     juryOpen: false,
