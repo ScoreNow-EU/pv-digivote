@@ -887,17 +887,11 @@ h3 {
 }
 
 .score-row--pending {
-  opacity: 0.55;
+  background: var(--color-paper-2);
 }
 
-.score-row__total--pending {
+.score-row--pending .score-row__country {
   color: var(--color-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-style: italic;
-  text-align: end;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 @keyframes score-enter {

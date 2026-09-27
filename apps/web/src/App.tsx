@@ -1133,11 +1133,9 @@ function Scoreboard({
             />
             {!compact && <span className="score-row__country">{row.act.country.displayName}</span>}
             {row.justAwarded !== undefined && <span className="score-row__award">+{row.justAwarded}</span>}
-            {row.publicPending ? (
-              <span className="score-row__total score-row__total--pending" title="Publikumsstimmen noch nicht enthüllt">offen</span>
-            ) : (
-              <strong className="score-row__total">{row.total}</strong>
-            )}
+            <strong className="score-row__total" title={row.publicPending ? "Publikumsstimmen noch nicht enthüllt" : undefined}>
+              {row.total}
+            </strong>
           </li>
         ))}
       </ol>
