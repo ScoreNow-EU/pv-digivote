@@ -1,0 +1,21 @@
+[
+  {
+    "date": "2026-09-26",
+    "macrostructure": "Workbench",
+    "theme": "Midnight",
+    "enrichment": "none",
+    "brief": "PastEurovision live show controller and voting surfaces",
+    "nav": "N9",
+    "footer": "Ft2"
+  },
+  {
+    "date": "2026-09-27",
+    "macrostructure": "Workbench · admin editor extension",
+    "theme": "Midnight",
+    "enrichment": "none",
+    "brief": "Persistent participant, jury PIN and event settings navigation inside the established live controller",
+    "nav": "N9 · section tabs",
+    "footer": "Ft2",
+    "variation": "stacked operational records with sticky save bar"
+  }
+]

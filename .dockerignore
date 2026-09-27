@@ -1,0 +1,12 @@
+node_modules
+dashboard
+graphics
+public
+extension
+dist
+coverage
+db
+logs
+.env
+.git
+*.log

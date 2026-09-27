@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "revision",
+    "phase",
+    "paused",
+    "currentActId",
+    "currentJurorIndex",
+    "currentRevealPoint",
+    "voting",
+    "screens",
+    "timecode",
+    "bridgeStatus",
+    "updatedAt"
+  ],
+  "properties": {
+    "revision": { "type": "integer", "minimum": 0 },
+    "phase": {
+      "enum": [
+        "SETUP",
+        "BEREIT",
+        "AUFTRITT",
+        "VOTING_BEREIT",
+        "VOTING_OFFEN",
+        "VOTING_GESCHLOSSEN",
+        "VALIDIERUNG",
+        "JURY_REVEAL",
+        "PUBLIC_REVEAL",
+        "STICHWAHL",
+        "STICHWAHL_OFFEN",
+        "STICHWAHL_GESCHLOSSEN",
+        "FINALE",
+        "ARCHIVIERT"
+      ]
+    },
+    "paused": { "type": "boolean" },
+    "currentActId": { "type": ["string", "null"] },
+    "currentJurorIndex": { "type": "integer", "minimum": 0 },
+    "currentRevealPoint": { "enum": [0, 8, 10, 12] },
+    "currentPublicRevealIndex": { "type": "integer", "minimum": 0 },
+    "revealedPublicActIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "voting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publicOpen", "juryOpen", "validPublicBallots", "validJuryBallots"],
+      "properties": {
+        "publicOpen": { "type": "boolean" },
+        "juryOpen": { "type": "boolean" },
+        "validPublicBallots": { "type": "integer", "minimum": 0 },
+        "validJuryBallots": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "screens": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["a", "b"],
+      "properties": {
+        "a": { "type": "string" },
+        "b": { "type": "string" }
+      }
+    },
+    "timecode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "frameRate", "signal"],
+      "properties": {
+        "value": { "type": "string", "pattern": "^[0-9]{2}:[0-9]{2}:[0-9]{2}:[0-9]{2}$" },
+        "frameRate": { "type": "number", "exclusiveMinimum": 0 },
+        "signal": { "type": "boolean" }
+      }
+    },
+    "bridgeStatus": { "enum": ["VERBUNDEN", "GETRENNT", "SIMULATION"] },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

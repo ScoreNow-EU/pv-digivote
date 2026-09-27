@@ -1,0 +1,15 @@
+node_modules/
+dashboard/
+graphics/
+public/
+extension/
+dist/
+coverage/
+.env
+db/
+logs/
+assets/
+*.log
+.DS_Store
+Thumbs.db
+

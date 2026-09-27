@@ -1,0 +1,63 @@
+services:
+  app:
+    build:
+      context: .
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://pastvision:${POSTGRES_PASSWORD:-pastvision-local}@postgres:5432/pastvision
+      REDIS_URL: redis://redis:6379
+      SESSION_SECRET: ${SESSION_SECRET:-local-development-secret-change-before-production}
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:-dev-bridge-token}
+    ports:
+      - "9090:9090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - nodecg_db:/app/db
+      - nodecg_logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9090/pv-digivote/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - "127.0.0.1:55432:5432"
+    environment:
+      POSTGRES_DB: pastvision
+      POSTGRES_USER: pastvision
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pastvision-local}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pastvision -d pastvision"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  nodecg_db:
+  nodecg_logs:
+  postgres_data:
+  redis_data:

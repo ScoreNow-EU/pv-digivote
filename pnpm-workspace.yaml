@@ -1,0 +1,13 @@
+packages:
+  - "packages/*"
+  - "apps/show-bridge"
+
+nodeLinker: hoisted
+packageImportMethod: hardlink
+
+allowBuilds:
+  "@parcel/watcher": true
+  "@vaadin/vaadin-usage-statistics": false
+  "better-sqlite3": true
+  "esbuild": true
+  "msgpackr-extract": true

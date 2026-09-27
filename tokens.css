@@ -1,0 +1,69 @@
+/* Hallmark · genre: atmospheric · macrostructure: Workbench · theme: Midnight · enrichment: none · nav: N9 · footer: Ft2
+ * audience: Regie, Artists, Publikum · use: Live-Show sicher steuern · tone: atmosphärisch-technisch
+ * Hallmark · pre-emit critique: P5 H5 E5 S5 R4 V5
+ */
+:root {
+  --color-paper: oklch(13% 0.025 266);
+  --color-paper-2: oklch(17% 0.03 266);
+  --color-paper-3: oklch(21% 0.035 266);
+  --color-paper-4: oklch(25% 0.04 266);
+  --color-ink: oklch(96% 0.012 240);
+  --color-ink-2: oklch(88% 0.018 245);
+  --color-muted: oklch(73% 0.025 255);
+  --color-rule: oklch(31% 0.035 266);
+  --color-rule-strong: oklch(42% 0.05 260);
+  --color-accent: oklch(79% 0.145 208);
+  --color-accent-ink: oklch(14% 0.03 252);
+  --color-accent-2: oklch(69% 0.22 327);
+  --color-success: oklch(76% 0.17 152);
+  --color-warning: oklch(85% 0.16 88);
+  --color-error: oklch(67% 0.22 24);
+  --color-focus: oklch(88% 0.19 95);
+  --color-overlay: oklch(8% 0.02 266 / 0.82);
+
+  --font-display: "Tomorrow", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-mono: var(--font-body);
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5625rem;
+  --text-xl: 1.953rem;
+  --text-2xl: 2.441rem;
+  --text-3xl: 3.052rem;
+  --text-display: clamp(2.4rem, 4vw + 1rem, 5rem);
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --space-4xl: 9rem;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.25rem;
+  --radius-pill: 999px;
+  --rule-thin: 1px;
+
+  --dur-micro: 100ms;
+  --dur-short: 180ms;
+  --dur-long: 380ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+}

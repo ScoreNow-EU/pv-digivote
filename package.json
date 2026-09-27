@@ -1,0 +1,84 @@
+{
+  "name": "pv-digivote",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Produktionsreifes Voting- und Präsentationssystem für PastEurovision",
+  "type": "commonjs",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=22 <25"
+  },
+  "scripts": {
+    "build": "pnpm clean:generated && pnpm build:packages && pnpm build:extension && pnpm build:web",
+    "build:packages": "pnpm --filter @pv/domain build && pnpm --filter @pv/database build && pnpm --filter @pv/scoring build && pnpm --filter @pv/show-bridge build",
+    "build:extension": "tsup apps/nodecg-extension/src/index.ts --format cjs --platform node --target node22 --out-dir extension --sourcemap --clean --external nodecg",
+    "build:web": "node scripts/build-web.mjs",
+    "clean:generated": "node scripts/clean-generated.mjs",
+    "dev": "vite --config apps/web/vite.config.ts",
+    "dev:nodecg": "pnpm build && node node_modules/nodecg/index.js",
+    "start": "node node_modules/nodecg/index.js",
+    "start:docker": "pnpm db:migrate && pnpm start",
+    "test": "vitest run",
+    "test:smoke": "node scripts/smoke-api.mjs",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "db:migrate": "tsx packages/database/src/migrate.ts",
+    "bridge:simulate": "tsx apps/show-bridge/src/index.ts --simulate"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-sans": "^5.2.6",
+    "@fontsource/tomorrow": "^5.2.6",
+    "country-flag-icons": "^1.6.20",
+    "express": "^4.22.1",
+    "nodecg": "2.8.0",
+    "pg": "^8.16.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "socket.io-client": "^4.8.1",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.6",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.15.5",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.7",
+    "vitest": "^3.2.4"
+  },
+  "nodecg": {
+    "compatibleRange": "^2.8.0",
+    "dashboardPanels": [
+      {
+        "name": "controller",
+        "title": "PastEurovision Regie",
+        "file": "controller.html",
+        "fullbleed": true
+      }
+    ],
+    "graphics": [
+      {
+        "file": "beamer-a.html",
+        "width": 1920,
+        "height": 1080,
+        "singleInstance": false
+      },
+      {
+        "file": "beamer-b.html",
+        "width": 1920,
+        "height": 1080,
+        "singleInstance": false
+      }
+    ],
+    "mount": [
+      {
+        "directory": "public",
+        "endpoint": "app"
+      }
+    ]
+  }
+}

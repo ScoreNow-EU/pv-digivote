@@ -1,0 +1,17 @@
+{
+  "name": "@pv/show-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "simulate": "tsx src/index.ts --simulate",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@pv/domain": "workspace:*",
+    "socket.io-client": "^4.8.1"
+  }
+}
