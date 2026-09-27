@@ -46,6 +46,11 @@ import { computeScoreboard } from "@pv/scoring";
 import { z } from "zod";
 import { computeJuryRevealProgress, JURY_REVEAL_SEQUENCE, PHASES_BEFORE_JURY_REVEAL, publicBundle } from "./reveal";
 
+// Wartezeit zwischen dem Klick der Regie und dem tatsächlichen Umspringen auf
+// Beamer A, damit das Moderator-Tablet den Schritt vorher mit Countdown
+// anzeigen kann, ohne dass der Beamer schon vorher reagiert.
+const JURY_REVEAL_DELAY_MS = 3_000;
+
 const ltcFrameSchema = z.object({
   value: z.string().regex(/^\d{2}:\d{2}:\d{2}:\d{2}$/),
   frameRate: z.number().positive(),
@@ -130,6 +135,13 @@ function extension(nodecg: NodeCG.ServerAPI): void {
   let timecodeCues: Awaited<ReturnType<typeof getTimecodeCues>> = [];
   let emitBridgeCue: (cue: Record<string, unknown>) => void = () => undefined;
   const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+  let pendingRevealTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearPendingReveal = (): void => {
+    if (pendingRevealTimer) {
+      clearTimeout(pendingRevealTimer);
+      pendingRevealTimer = undefined;
+    }
+  };
   const initialState: ShowState = {
     ...defaultShowState,
     updatedAt: new Date().toISOString()
@@ -182,12 +194,15 @@ function extension(nodecg: NodeCG.ServerAPI): void {
 
   nodecg.listenFor("pv:set-phase", (payload: unknown) => {
     const phase = showPhaseSchema.parse(payload);
-    update({ phase });
+    clearPendingReveal();
+    update({ phase, pendingJuryReveal: null });
   });
 
   nodecg.listenFor("pv:toggle-pause", () => {
     const current = readState();
-    update({ paused: !current.paused });
+    const pausing = !current.paused;
+    if (pausing) clearPendingReveal();
+    update({ paused: pausing, ...(pausing ? { pendingJuryReveal: null } : {}) });
   });
 
   nodecg.listenFor("pv:update-event-config", (payload: unknown) => {
@@ -244,6 +259,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
   });
 
   nodecg.listenFor("pv:advance-jury-reveal", () => {
+    clearPendingReveal();
     const current = readState();
     const currentIndex = JURY_REVEAL_SEQUENCE.indexOf(current.currentRevealPoint);
     const atEnd = currentIndex === JURY_REVEAL_SEQUENCE.length - 1;
@@ -255,34 +271,54 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       const awardedActId = bundle && juror && nextPoint > 0
         ? await getJuryAward(bundle.event.id, juror.id, nextPoint)
         : undefined;
+
+      // Sofort für das Moderator-Tablet sichtbar machen (Vorschau + Countdown),
+      // der Beamer bekommt den eigentlichen State erst nach der Wartezeit.
+      const revealAt = new Date(Date.now() + JURY_REVEAL_DELAY_MS).toISOString();
       update({
-        phase: "JURY_REVEAL",
-        currentRevealPoint: nextPoint,
-        currentJurorIndex: nextJurorIndex,
-        ...(awardedActId ? { currentActId: awardedActId } : {})
-      });
-      if (nextPoint === -1) {
-        emitBridgeCue({ eventType: "JURY_JUROR_ANNOUNCE", jurorId: juror?.id ?? null });
-      } else {
-        emitBridgeCue({
-          eventType: "JURY_POINTS_REVEAL",
-          jurorId: juror?.id ?? null,
+        pendingJuryReveal: {
+          currentJurorIndex: nextJurorIndex,
+          currentRevealPoint: nextPoint,
           actId: awardedActId ?? null,
-          points: nextPoint,
-          countryIsoCode: bundle?.acts.find((act) => act.id === awardedActId)?.country.isoCode ?? null
+          revealAt
+        }
+      });
+
+      pendingRevealTimer = setTimeout(() => {
+        pendingRevealTimer = undefined;
+        if (readState().paused) return;
+        update({
+          phase: "JURY_REVEAL",
+          currentRevealPoint: nextPoint,
+          currentJurorIndex: nextJurorIndex,
+          pendingJuryReveal: null,
+          ...(awardedActId ? { currentActId: awardedActId } : {})
         });
-      }
+        if (nextPoint === -1) {
+          emitBridgeCue({ eventType: "JURY_JUROR_ANNOUNCE", jurorId: juror?.id ?? null });
+        } else {
+          emitBridgeCue({
+            eventType: "JURY_POINTS_REVEAL",
+            jurorId: juror?.id ?? null,
+            actId: awardedActId ?? null,
+            points: nextPoint,
+            countryIsoCode: bundle?.acts.find((act) => act.id === awardedActId)?.country.isoCode ?? null
+          });
+        }
+      }, JURY_REVEAL_DELAY_MS);
     }).catch((error: unknown) => nodecg.log.error(`Jury-Reveal fehlgeschlagen: ${String(error)}`));
   });
 
   nodecg.listenFor("pv:rewind-jury-reveal", () => {
+    clearPendingReveal();
     const current = readState();
     const currentIndex = JURY_REVEAL_SEQUENCE.indexOf(current.currentRevealPoint);
     const atStart = currentIndex <= 0;
     update({
       phase: "JURY_REVEAL",
       currentRevealPoint: atStart ? JURY_REVEAL_SEQUENCE[JURY_REVEAL_SEQUENCE.length - 1]! : JURY_REVEAL_SEQUENCE[currentIndex - 1]!,
-      currentJurorIndex: atStart ? Math.max(0, current.currentJurorIndex - 1) : current.currentJurorIndex
+      currentJurorIndex: atStart ? Math.max(0, current.currentJurorIndex - 1) : current.currentJurorIndex,
+      pendingJuryReveal: null
     });
   });
 
@@ -750,6 +786,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       response.status(503).json({ ok: false, error: "NO_EVENT" });
       return;
     }
+    clearPendingReveal();
     await resetEventProgress(bundle.event.id);
     update({
       phase: "SETUP",
@@ -759,6 +796,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       currentRevealPoint: -1,
       currentPublicRevealIndex: 0,
       revealedPublicActIds: [],
+      pendingJuryReveal: null,
       screens: { a: "RUHE", b: "RANGLISTE" }
     });
     await refreshVotingCounts(bundle);

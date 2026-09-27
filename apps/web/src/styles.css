@@ -1549,6 +1549,19 @@ h3 {
   font-size: clamp(var(--text-md), 2vw, var(--text-xl));
 }
 
+/* Kompakte Variante fürs Moderator-Tablet: nur Flagge statt Flagge + Ländername,
+   damit die Rangliste auch auf einem kleinen Bildschirm (iPad Mini) passt. */
+.scoreboard--compact.scoreboard--projector .score-row {
+  grid-template-columns: 2rem 3.5rem 1fr auto auto;
+  gap: var(--space-xs);
+  padding-inline: var(--space-sm);
+}
+
+.scoreboard--compact .score-row__flag {
+  width: 2.75rem;
+  height: 1.8rem;
+}
+
 @media (min-width: 40rem) {
   .mobile-intro {
     grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.8fr);

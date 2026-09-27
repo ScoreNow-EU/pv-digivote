@@ -108,6 +108,12 @@ export const showStateSchema = z.object({
   currentRevealPoint: z.union([z.literal(-1), z.literal(0), z.literal(8), z.literal(10), z.literal(12)]),
   currentPublicRevealIndex: z.number().int().nonnegative().default(0),
   revealedPublicActIds: z.array(entityIdSchema).default([]),
+  pendingJuryReveal: z.object({
+    currentJurorIndex: z.number().int().nonnegative(),
+    currentRevealPoint: z.union([z.literal(-1), z.literal(0), z.literal(8), z.literal(10), z.literal(12)]),
+    actId: entityIdSchema.nullable(),
+    revealAt: z.string().datetime()
+  }).nullable().default(null),
   voting: z.object({
     publicOpen: z.boolean(),
     juryOpen: z.boolean(),
@@ -137,6 +143,7 @@ export const defaultShowState: ShowState = {
   currentRevealPoint: -1,
   currentPublicRevealIndex: 0,
   revealedPublicActIds: [],
+  pendingJuryReveal: null,
   voting: {
     publicOpen: false,
     juryOpen: false,

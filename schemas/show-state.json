@@ -45,6 +45,17 @@
       "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true
     },
+    "pendingJuryReveal": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["currentJurorIndex", "currentRevealPoint", "actId", "revealAt"],
+      "properties": {
+        "currentJurorIndex": { "type": "integer", "minimum": 0 },
+        "currentRevealPoint": { "enum": [-1, 0, 8, 10, 12] },
+        "actId": { "type": ["string", "null"] },
+        "revealAt": { "type": "string", "format": "date-time" }
+      }
+    },
     "voting": {
       "type": "object",
       "additionalProperties": false,

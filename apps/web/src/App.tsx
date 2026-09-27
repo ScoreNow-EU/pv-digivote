@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { DEFAULT_POINT_SCALE, validateEscBallot, type Act, type EventConfig, type ShowPhase, type ShowState } from "@pv/domain";
 import { demoActs, demoJurors, demoScores } from "./demo-data";
 import { CountryFlag } from "./CountryFlag";
@@ -433,17 +433,19 @@ function ControllerSurface({
                     </span>
                   </div>
                   <p className="panel__copy">
-                    {state.currentRevealPoint === -1
-                      ? "Der Name wird angekündigt. Die Punkte folgen erst beim nächsten Klick."
-                      : state.currentRevealPoint === 0
-                        ? "Die kleinen Punkte werden gesammelt auf Beamer A enthüllt."
-                        : `${state.currentRevealPoint} Punkte werden einzeln auf Beamer A enthüllt.`}
+                    {state.pendingJuryReveal
+                      ? "Wird in Kürze auf Beamer A übernommen …"
+                      : state.currentRevealPoint === -1
+                        ? "Der Name wird angekündigt. Die Punkte folgen erst beim nächsten Klick."
+                        : state.currentRevealPoint === 0
+                          ? "Die kleinen Punkte werden gesammelt auf Beamer A enthüllt."
+                          : `${state.currentRevealPoint} Punkte werden einzeln auf Beamer A enthüllt.`}
                   </p>
                   <div className="button-row">
                     <button
                       className="button button--accent"
                       type="button"
-                      disabled={state.paused}
+                      disabled={state.paused || Boolean(state.pendingJuryReveal)}
                       onClick={() => send({ type: "advance-jury-reveal" })}
                     >
                       {state.currentRevealPoint === -1 ? "Punkte 1–7 zeigen" : "Nächsten Punkt zeigen"}
@@ -451,7 +453,7 @@ function ControllerSurface({
                     <button
                       className="button button--quiet"
                       type="button"
-                      disabled={state.paused}
+                      disabled={state.paused || Boolean(state.pendingJuryReveal)}
                       onClick={() => send({ type: "rewind-jury-reveal" })}
                     >
                       Schritt zurück
@@ -1038,6 +1040,7 @@ function Scoreboard({
   acts,
   scores,
   projector = false,
+  compact = false,
   revealedPublicActIds = [],
   showAllPublic = false,
   juryPointsByAct,
@@ -1047,6 +1050,7 @@ function Scoreboard({
   acts: DisplayAct[];
   scores: DisplayScore[];
   projector?: boolean;
+  compact?: boolean;
   revealedPublicActIds?: readonly string[];
   showAllPublic?: boolean;
   juryPointsByAct?: Record<string, number> | undefined;
@@ -1063,8 +1067,13 @@ function Scoreboard({
   // Spaltenweise Reihenfolge: Platz 1..n oben-links nach unten, danach rechts weiter
   // (statt zeilenweise links-rechts), daher fixe Zeilenzahl für grid-auto-flow: column.
   const rowCount = Math.ceil(rows.length / 2);
+  const sectionClassName = [
+    "scoreboard",
+    projector ? "scoreboard--projector" : "panel",
+    compact && "scoreboard--compact"
+  ].filter(Boolean).join(" ");
   return (
-    <section className={projector ? "scoreboard scoreboard--projector" : "scoreboard panel"} aria-labelledby="scoreboard-title">
+    <section className={sectionClassName} aria-labelledby="scoreboard-title">
       <header className="scoreboard__head">
         <div>
           {!projector && <p className="panel__label">Live berechnet</p>}
@@ -1082,7 +1091,7 @@ function Scoreboard({
               label={row.act.country.displayName}
               fallback={row.act.country.flag}
             />
-            <span className="score-row__country">{row.act.country.displayName}</span>
+            {!compact && <span className="score-row__country">{row.act.country.displayName}</span>}
             {row.justAwarded !== undefined && <span className="score-row__award">+{row.justAwarded}</span>}
             <strong className="score-row__total">{row.total}</strong>
           </li>
@@ -1486,27 +1495,26 @@ function TabletSurface({
   const nextPublicAct = acts.find((act) => act.id === nextPublic?.actId);
   const publicMode = state.phase === "PUBLIC_REVEAL";
   const juryRevealMode = state.phase === "JURY_REVEAL";
+  const pending = state.pendingJuryReveal;
 
-  // Nach jedem neuen Reveal-Schritt läuft ein kurzer Countdown, bevor der
-  // Moderator ansagen darf – erst bei 0 wird der Ansage-Text sichtbar.
-  const stepKey = `${state.currentJurorIndex}:${state.currentRevealPoint}`;
+  // Solange ein Reveal-Schritt ansteht, zählt das Tablet bis zum exakten
+  // Umspring-Zeitpunkt des Beamers herunter (revealAt kommt vom Server),
+  // statt selbst eine künstliche Verzögerung einzuführen.
   const [countdown, setCountdown] = useState(0);
-  const previousStepKey = useRef(stepKey);
-
   useEffect(() => {
-    if (!juryRevealMode) return;
-    if (previousStepKey.current === stepKey) return;
-    previousStepKey.current = stepKey;
-    setCountdown(3);
-  }, [stepKey, juryRevealMode]);
+    if (!pending) {
+      setCountdown(0);
+      return;
+    }
+    const revealAtMs = new Date(pending.revealAt).getTime();
+    const tick = () => setCountdown(Math.max(0, Math.ceil((revealAtMs - Date.now()) / 1_000)));
+    tick();
+    const timer = window.setInterval(tick, 250);
+    return () => window.clearInterval(timer);
+  }, [pending?.revealAt]);
 
-  useEffect(() => {
-    if (countdown <= 0) return;
-    const timer = window.setTimeout(() => setCountdown((value) => Math.max(0, value - 1)), 1_000);
-    return () => window.clearTimeout(timer);
-  }, [countdown]);
-
-  const readyToAnnounce = !juryRevealMode || countdown <= 0;
+  const pendingJuror = pending ? juryList[pending.currentJurorIndex % juryList.length] : undefined;
+  const pendingAct = pending?.actId ? acts.find((act) => act.id === pending.actId) : undefined;
 
   return (
     <div className="tablet-shell">
@@ -1521,20 +1529,27 @@ function TabletSurface({
             acts={acts}
             scores={scores}
             projector
+            compact
             revealedPublicActIds={state.revealedPublicActIds}
             juryPointsByAct={revealedJuryPoints}
             justAwarded={computeJustAwarded(state, currentBulkAward)}
           />
         </div>
         <section className="tablet-next" aria-labelledby="tablet-next-title">
-          {juryRevealMode && !readyToAnnounce ? (
-            <div className="tablet-countdown" aria-live="polite">
-              <span>Gleich geht's weiter</span>
-              <strong>{countdown}</strong>
-            </div>
+          {juryRevealMode && pending ? (
+            <>
+              <p>Gleich auf dem Beamer · in {countdown}s</p>
+              <h1 id="tablet-next-title">
+                {pending.currentRevealPoint === -1 ? pendingJuror?.displayName ?? "—" : pendingAct?.country.displayName ?? "—"}
+              </h1>
+              <div className="tablet-points">
+                <span>{pending.currentRevealPoint === -1 ? "Name" : "Punkte"}</span>
+                <strong>{pending.currentRevealPoint === -1 ? countdown : pending.currentRevealPoint === 0 ? "1–7" : pending.currentRevealPoint}</strong>
+              </div>
+            </>
           ) : juryRevealMode ? (
             <>
-              <p>Jetzt ansagen</p>
+              <p>Live auf dem Beamer</p>
               <h1 id="tablet-next-title">
                 {state.currentRevealPoint === -1 ? currentJuror.displayName : currentAwardAct?.country.displayName ?? "—"}
               </h1>

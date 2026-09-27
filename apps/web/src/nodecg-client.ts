@@ -19,6 +19,9 @@ declare global {
   }
 }
 
+// Muss zur Wartezeit in apps/nodecg-extension/src/index.ts passen.
+const JURY_REVEAL_DELAY_MS = 3_000;
+
 export type ShowCommand =
   | { type: "set-phase"; phase: ShowState["phase"] }
   | { type: "toggle-pause" }
@@ -124,15 +127,29 @@ export function useShowState(): [ShowState, (command: ShowCommand) => void, bool
           phase: "JURY_REVEAL",
           currentRevealPoint: atStart ? sequence[sequence.length - 1]! : sequence[index - 1]!,
           currentJurorIndex: atStart ? Math.max(0, current.currentJurorIndex - 1) : current.currentJurorIndex,
+          pendingJuryReveal: null,
           revision: current.revision + 1
         };
       }
+      // advance-jury-reveal: wie im Backend erst als Vorschau ankündigen,
+      // der eigentliche Wechsel (den der Beamer zeigt) folgt verzögert.
       const atEnd = index === sequence.length - 1;
+      const nextPoint = atEnd ? sequence[0]! : sequence[index + 1]!;
+      const nextJurorIndex = atEnd ? current.currentJurorIndex + 1 : current.currentJurorIndex;
+      const revealAt = new Date(Date.now() + JURY_REVEAL_DELAY_MS).toISOString();
+      window.setTimeout(() => {
+        setState((latest) => (latest.paused ? latest : {
+          ...latest,
+          phase: "JURY_REVEAL",
+          currentRevealPoint: nextPoint,
+          currentJurorIndex: nextJurorIndex,
+          pendingJuryReveal: null,
+          revision: latest.revision + 1
+        }));
+      }, JURY_REVEAL_DELAY_MS);
       return {
         ...current,
-        phase: "JURY_REVEAL",
-        currentRevealPoint: atEnd ? sequence[0]! : sequence[index + 1]!,
-        currentJurorIndex: atEnd ? current.currentJurorIndex + 1 : current.currentJurorIndex,
+        pendingJuryReveal: { currentJurorIndex: nextJurorIndex, currentRevealPoint: nextPoint, actId: null, revealAt },
         revision: current.revision + 1
       };
     });
