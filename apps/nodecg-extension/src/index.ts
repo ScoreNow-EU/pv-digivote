@@ -31,6 +31,7 @@ import {
   openRunoffRound,
   replaceEventActs,
   replaceEventJurors,
+  resetEventProgress,
   revealActIdentity,
   setRoundOpen,
   setSessionTokenHash,
@@ -734,6 +735,27 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       juryOpen: rounds.juryOpen,
       publicOpen: rounds.publicOpen
     });
+  }));
+
+  api.post("/admin/reset-progress", route(async (_request, response) => {
+    const bundle = await getActiveEventBundle();
+    if (!bundle) {
+      response.status(503).json({ ok: false, error: "NO_EVENT" });
+      return;
+    }
+    await resetEventProgress(bundle.event.id);
+    update({
+      phase: "SETUP",
+      paused: false,
+      currentActId: null,
+      currentJurorIndex: 0,
+      currentRevealPoint: 0,
+      currentPublicRevealIndex: 0,
+      revealedPublicActIds: [],
+      screens: { a: "RUHE", b: "RANGLISTE" }
+    });
+    await refreshVotingCounts(bundle);
+    response.json({ ok: true });
   }));
 
   api.get("/health", async (_request, response) => {

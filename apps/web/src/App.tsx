@@ -9,6 +9,7 @@ import {
   fetchBootstrap,
   fetchMyBallot,
   loginJury,
+  resetShowProgress,
   runDemoVote,
   saveAdminActs,
   saveAdminJurors,
@@ -157,6 +158,9 @@ function ControllerSurface({
   const [demoPublicCount, setDemoPublicCount] = useState(20);
   const [demoVoteState, setDemoVoteState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [demoVoteMessage, setDemoVoteMessage] = useState("");
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetState, setResetState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [resetMessage, setResetMessage] = useState("");
 
   const refreshAdminConfig = async () => {
     setAdminLoading(true);
@@ -199,6 +203,23 @@ function ControllerSurface({
     } catch (error) {
       setDemoVoteState("error");
       setDemoVoteMessage(error instanceof Error ? error.message : "Demo-Voting fehlgeschlagen.");
+    }
+  };
+
+  const triggerReset = async () => {
+    setResetState("loading");
+    setResetMessage("");
+    try {
+      await resetShowProgress();
+      setResetState("done");
+      setResetMessage("Show wurde vollständig zurückgesetzt.");
+      setResetConfirmOpen(false);
+      setDemoVoteState("idle");
+      setDemoVoteMessage("");
+      await refreshAdminConfig();
+    } catch (error) {
+      setResetState("error");
+      setResetMessage(error instanceof Error ? error.message : "Zurücksetzen fehlgeschlagen.");
     }
   };
 
@@ -373,45 +394,6 @@ function ControllerSurface({
               )}
             </section>
 
-            <section className="panel demo-vote-control" aria-labelledby="demo-vote-title">
-              <div className="panel__head panel__head--compact">
-                <div>
-                  <p className="panel__label">Probe</p>
-                  <h2 id="demo-vote-title">Demo-Voting</h2>
-                </div>
-              </div>
-              <p className="panel__copy">
-                Vergibt zufällige, gültige Stimmzettel über die echte Abstimmung – für Proben und Technik-Checks.
-                Wirkt nur auf geöffnete Abstimmungen.
-              </p>
-              <label className="demo-vote-control__count">
-                Publikumsstimmen
-                <input
-                  type="number"
-                  min={0}
-                  max={500}
-                  value={demoPublicCount}
-                  onChange={(event) => setDemoPublicCount(Math.max(0, Math.min(500, Number(event.target.value))))}
-                />
-              </label>
-              <button
-                className="button button--quiet button--wide"
-                type="button"
-                disabled={demoVoteState === "loading" || (!state.voting.publicOpen && !state.voting.juryOpen)}
-                onClick={() => void triggerDemoVote()}
-              >
-                {demoVoteState === "loading" ? "Wird abgestimmt …" : "Zufällig abstimmen"}
-              </button>
-              {(!state.voting.publicOpen && !state.voting.juryOpen) && (
-                <p className="form-message">Öffne zuerst Jury- oder Publikumsvoting.</p>
-              )}
-              {demoVoteMessage && (
-                <p className={demoVoteState === "error" ? "form-message form-message--error" : "form-message form-message--success"} role="status">
-                  {demoVoteMessage}
-                </p>
-              )}
-            </section>
-
             {(requiresRunoff || runoff) && (
               <section className="panel runoff-control" aria-labelledby="runoff-control-title">
                 <p className="panel__label">Gleichstand</p>
@@ -442,7 +424,90 @@ function ControllerSurface({
             <JuryAdmin config={adminConfig} onSaved={refreshAdminConfig} />
           )}
           {activeSection === "settings" && (
-            <ConfigurationPanel config={config} onSave={(nextConfig) => send({ type: "update-event-config", config: nextConfig })} />
+            <>
+              <ConfigurationPanel config={config} onSave={(nextConfig) => send({ type: "update-event-config", config: nextConfig })} />
+
+              <section className="panel demo-vote-control" aria-labelledby="demo-vote-title">
+                <div className="panel__head panel__head--compact">
+                  <div>
+                    <p className="panel__label">Testbetrieb</p>
+                    <h2 id="demo-vote-title">Demo-Voting</h2>
+                  </div>
+                </div>
+                <p className="panel__copy">
+                  Vergibt zufällige, gültige Stimmzettel über die echte Abstimmung – für Proben und Technik-Checks.
+                  Wirkt nur auf geöffnete Abstimmungen.
+                </p>
+                <label className="demo-vote-control__count">
+                  Publikumsstimmen
+                  <input
+                    type="number"
+                    min={0}
+                    max={500}
+                    value={demoPublicCount}
+                    onChange={(event) => setDemoPublicCount(Math.max(0, Math.min(500, Number(event.target.value))))}
+                  />
+                </label>
+                <button
+                  className="button button--quiet button--wide"
+                  type="button"
+                  disabled={demoVoteState === "loading" || (!state.voting.publicOpen && !state.voting.juryOpen)}
+                  onClick={() => void triggerDemoVote()}
+                >
+                  {demoVoteState === "loading" ? "Wird abgestimmt …" : "Zufällig abstimmen"}
+                </button>
+                {(!state.voting.publicOpen && !state.voting.juryOpen) && (
+                  <p className="form-message">Öffne zuerst Jury- oder Publikumsvoting in der Show-Ansicht.</p>
+                )}
+                {demoVoteMessage && (
+                  <p className={demoVoteState === "error" ? "form-message form-message--error" : "form-message form-message--success"} role="status">
+                    {demoVoteMessage}
+                  </p>
+                )}
+              </section>
+
+              <section className="panel reset-control" aria-labelledby="reset-control-title">
+                <div className="panel__head panel__head--compact">
+                  <div>
+                    <p className="panel__label">Testbetrieb</p>
+                    <h2 id="reset-control-title">Show zurücksetzen</h2>
+                  </div>
+                </div>
+                <p className="panel__copy">
+                  Setzt Showphase, Klarnamen-Reveals, alle Jury- und Publikumsstimmen sowie eine offene Stichwahl
+                  vollständig zurück. Das kann nicht widerrufen werden.
+                </p>
+                {resetConfirmOpen ? (
+                  <div className="button-row">
+                    <button
+                      className="button button--danger button--wide"
+                      type="button"
+                      disabled={resetState === "loading"}
+                      onClick={() => void triggerReset()}
+                    >
+                      {resetState === "loading" ? "Wird zurückgesetzt …" : "Ja, alles zurücksetzen"}
+                    </button>
+                    <button
+                      className="button button--quiet button--wide"
+                      type="button"
+                      disabled={resetState === "loading"}
+                      onClick={() => setResetConfirmOpen(false)}
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                ) : (
+                  <button className="button button--danger button--wide" type="button" onClick={() => setResetConfirmOpen(true)}>
+                    Zurücksetzen …
+                  </button>
+                )}
+                {resetMessage && (
+                  <p className={resetState === "error" ? "form-message form-message--error" : "form-message form-message--success"} role="status">
+                    {resetMessage}
+                  </p>
+                )}
+              </section>
+            </>
           )}
         </main>
       )}

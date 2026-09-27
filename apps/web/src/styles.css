@@ -526,6 +526,15 @@ h3 {
   margin-block-start: var(--space-md);
 }
 
+.reset-control {
+  padding: var(--space-lg);
+}
+
+.reset-control > .button,
+.reset-control > .button-row {
+  margin-block-start: var(--space-md);
+}
+
 .config-panel {
   padding: var(--space-lg);
 }

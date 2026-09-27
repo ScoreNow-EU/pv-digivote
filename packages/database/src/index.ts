@@ -491,6 +491,30 @@ export async function getJuryBallotsByJuror(eventId: string): Promise<Map<string
   return new Map(result.rows.map((row) => [row.juror_id, row.entries]));
 }
 
+export async function resetEventProgress(eventId: string): Promise<void> {
+  const database = requireDatabase();
+  const client = await database.connect();
+  try {
+    await client.query("begin");
+    await client.query(`
+      delete from ballots
+      where round_id in (select id from ballot_rounds where event_id = $1 and type in ('JURY', 'PUBLIC'))
+    `, [eventId]);
+    await client.query(`
+      update ballot_rounds set status = 'DRAFT', opened_at = null, closed_at = null
+      where event_id = $1 and type in ('JURY', 'PUBLIC')
+    `, [eventId]);
+    await client.query("delete from ballot_rounds where event_id = $1 and type = 'RUNOFF'", [eventId]);
+    await client.query("update acts set identity_revealed = false where event_id = $1", [eventId]);
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function setRoundOpen(eventId: string, group: "JURY" | "PUBLIC", open: boolean): Promise<void> {
   await requireDatabase().query(`
     update ballot_rounds

@@ -173,6 +173,10 @@ export function runDemoVote(publicCount: number): Promise<DemoVoteResult> {
   return requestJson("/admin/demo-vote", { method: "POST", body: JSON.stringify({ publicCount }) });
 }
 
+export function resetShowProgress(): Promise<{ ok: true }> {
+  return requestJson("/admin/reset-progress", { method: "POST", body: "{}" });
+}
+
 export function useLiveBackend(enabled: boolean) {
   const [bootstrap, setBootstrap] = useState<BootstrapResponse>();
   const [scores, setScores] = useState<ScoreResponse>();
