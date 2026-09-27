@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Act, BallotEntry, Juror } from "@pv/domain";
 import type { EventBundle } from "@pv/database";
-import { computeJuryRevealProgress, findLinkedAct, publicBundle, revealedPointValues } from "./reveal";
+import { computeJuryRevealProgress, computeNextJuryStep, findLinkedAct, publicBundle, revealedPointValues } from "./reveal";
 
 function makeAct(overrides: Partial<Act & { artistNames: string[] }>): Act & { artistNames: string[] } {
   return {
@@ -135,5 +135,33 @@ describe("computeJuryRevealProgress", () => {
   it("zählt nach dem letzten Juror die volle Summe", () => {
     const progress = computeJuryRevealProgress(actIds, orderedJurors, ballotsByJuror, 2, 0);
     expect(progress).toEqual({ "act-1": 13, "act-2": 13 });
+  });
+});
+
+describe("computeNextJuryStep", () => {
+  const orderedJurors = [{ id: "juror-1" }, { id: "juror-2" }];
+  const ballotsByJuror = new Map<string, BallotEntry[]>([
+    ["juror-1", [{ actId: "act-1", points: 12 }, { actId: "act-2", points: 8 }]],
+    ["juror-2", [{ actId: "act-2", points: 12 }, { actId: "act-1", points: 8 }]]
+  ]);
+
+  it("kündigt für die Sammelpunkte keinen einzelnen Act an", () => {
+    const next = computeNextJuryStep(orderedJurors, ballotsByJuror, 0, -1);
+    expect(next).toEqual({ currentJurorIndex: 0, currentRevealPoint: 0, actId: null });
+  });
+
+  it("löst für einen Punktwert den passenden Act aus dem Stimmzettel des Jurors auf", () => {
+    const next = computeNextJuryStep(orderedJurors, ballotsByJuror, 0, 0);
+    expect(next).toEqual({ currentJurorIndex: 0, currentRevealPoint: 8, actId: "act-2" });
+  });
+
+  it("wechselt nach dem letzten Punktwert zur Ankündigung des nächsten Jurors", () => {
+    const next = computeNextJuryStep(orderedJurors, ballotsByJuror, 0, 12);
+    expect(next).toEqual({ currentJurorIndex: 1, currentRevealPoint: -1, actId: null });
+  });
+
+  it("wickelt nach dem letzten Juror wieder zum ersten", () => {
+    const next = computeNextJuryStep(orderedJurors, ballotsByJuror, 1, 12);
+    expect(next).toEqual({ currentJurorIndex: 2, currentRevealPoint: -1, actId: null });
   });
 });

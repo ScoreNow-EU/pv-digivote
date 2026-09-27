@@ -50,6 +50,12 @@ export interface JuryBulkAwardEntry {
   points: number;
 }
 
+export interface JuryRevealStep {
+  currentJurorIndex: number;
+  currentRevealPoint: -1 | 0 | 8 | 10 | 12;
+  actId: string | null;
+}
+
 export interface ScoreResponse {
   ok: true;
   rows: ScoreRow[];
@@ -61,6 +67,7 @@ export interface ScoreResponse {
   runoffActIds: string[];
   revealProgress: Record<string, number>;
   currentBulkAward: JuryBulkAwardEntry[];
+  nextJuryPreview: JuryRevealStep | null;
 }
 
 export interface AdminActInput {

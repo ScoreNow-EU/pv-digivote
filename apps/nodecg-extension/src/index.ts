@@ -18,7 +18,6 @@ import {
   getBallotCounts,
   getCountingBallots,
   getCurrentBallot,
-  getJuryAward,
   getJuryBallotsByJuror,
   getOrCreateJurySession,
   getOrCreatePublicSession,
@@ -44,7 +43,7 @@ import {
 } from "@pv/database";
 import { computeScoreboard } from "@pv/scoring";
 import { z } from "zod";
-import { computeJuryRevealProgress, JURY_REVEAL_SEQUENCE, PHASES_BEFORE_JURY_REVEAL, publicBundle } from "./reveal";
+import { computeJuryRevealProgress, computeNextJuryStep, JURY_REVEAL_SEQUENCE, PHASES_BEFORE_JURY_REVEAL, publicBundle } from "./reveal";
 
 // Wartezeit zwischen dem Klick der Regie und dem tatsächlichen Umspringen auf
 // Beamer A, damit das Moderator-Tablet den Schritt vorher mit Countdown
@@ -261,25 +260,20 @@ function extension(nodecg: NodeCG.ServerAPI): void {
   nodecg.listenFor("pv:advance-jury-reveal", () => {
     clearPendingReveal();
     const current = readState();
-    const currentIndex = JURY_REVEAL_SEQUENCE.indexOf(current.currentRevealPoint);
-    const atEnd = currentIndex === JURY_REVEAL_SEQUENCE.length - 1;
-    const nextPoint = atEnd ? JURY_REVEAL_SEQUENCE[0]! : JURY_REVEAL_SEQUENCE[currentIndex + 1]!;
-    const nextJurorIndex = atEnd ? current.currentJurorIndex + 1 : current.currentJurorIndex;
     void getActiveEventBundle().then(async (bundle) => {
       const jurors = bundle?.jurors.filter((juror) => juror.enabled) ?? [];
-      const juror = jurors[nextJurorIndex % Math.max(jurors.length, 1)];
-      const awardedActId = bundle && juror && nextPoint > 0
-        ? await getJuryAward(bundle.event.id, juror.id, nextPoint)
-        : undefined;
+      const ballotsByJuror = bundle ? await getJuryBallotsByJuror(bundle.event.id) : new Map<string, BallotEntry[]>();
+      const next = computeNextJuryStep(jurors, ballotsByJuror, current.currentJurorIndex, current.currentRevealPoint);
+      const juror = jurors[next.currentJurorIndex % Math.max(jurors.length, 1)];
 
       // Sofort für das Moderator-Tablet sichtbar machen (Vorschau + Countdown),
       // der Beamer bekommt den eigentlichen State erst nach der Wartezeit.
       const revealAt = new Date(Date.now() + JURY_REVEAL_DELAY_MS).toISOString();
       update({
         pendingJuryReveal: {
-          currentJurorIndex: nextJurorIndex,
-          currentRevealPoint: nextPoint,
-          actId: awardedActId ?? null,
+          currentJurorIndex: next.currentJurorIndex,
+          currentRevealPoint: next.currentRevealPoint,
+          actId: next.actId,
           revealAt
         }
       });
@@ -289,20 +283,20 @@ function extension(nodecg: NodeCG.ServerAPI): void {
         if (readState().paused) return;
         update({
           phase: "JURY_REVEAL",
-          currentRevealPoint: nextPoint,
-          currentJurorIndex: nextJurorIndex,
+          currentRevealPoint: next.currentRevealPoint,
+          currentJurorIndex: next.currentJurorIndex,
           pendingJuryReveal: null,
-          ...(awardedActId ? { currentActId: awardedActId } : {})
+          ...(next.actId ? { currentActId: next.actId } : {})
         });
-        if (nextPoint === -1) {
+        if (next.currentRevealPoint === -1) {
           emitBridgeCue({ eventType: "JURY_JUROR_ANNOUNCE", jurorId: juror?.id ?? null });
         } else {
           emitBridgeCue({
             eventType: "JURY_POINTS_REVEAL",
             jurorId: juror?.id ?? null,
-            actId: awardedActId ?? null,
-            points: nextPoint,
-            countryIsoCode: bundle?.acts.find((act) => act.id === awardedActId)?.country.isoCode ?? null
+            actId: next.actId,
+            points: next.currentRevealPoint,
+            countryIsoCode: bundle?.acts.find((act) => act.id === next.actId)?.country.isoCode ?? null
           });
         }
       }, JURY_REVEAL_DELAY_MS);
@@ -707,7 +701,13 @@ function extension(nodecg: NodeCG.ServerAPI): void {
           .filter((entry) => entry.points >= 1 && entry.points <= 7)
           .sort((left, right) => left.points - right.points)
       : [];
-    response.json({ ok: true, ...scoreboard, revealProgress, currentBulkAward });
+    // Was der nächste Klick auf "Nächsten Punkt zeigen" enthüllen würde –
+    // das Moderator-Tablet zeigt das dauerhaft als Vorschau, nicht erst
+    // während des pendingJuryReveal-Countdowns.
+    const nextJuryPreview = state.phase === "JURY_REVEAL" && !state.pendingJuryReveal
+      ? computeNextJuryStep(orderedJurors, juryEntriesByJuror, state.currentJurorIndex, state.currentRevealPoint)
+      : null;
+    response.json({ ok: true, ...scoreboard, revealProgress, currentBulkAward, nextJuryPreview });
   }));
 
   const demoVoteRequestSchema = z.object({

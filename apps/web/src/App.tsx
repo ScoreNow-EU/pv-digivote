@@ -20,6 +20,7 @@ import {
   type AdminJurorInput,
   type BootstrapResponse,
   type JuryBulkAwardEntry,
+  type JuryRevealStep,
   type PublicJuror
 } from "./api-client";
 
@@ -143,6 +144,7 @@ export function App({ surface }: AppProps) {
   })) ?? demoScores;
   const revealedJuryPoints = live.scores?.revealProgress;
   const currentBulkAward = live.scores?.currentBulkAward ?? [];
+  const nextJuryPreview = live.scores?.nextJuryPreview ?? null;
 
   if (surface === "vote") return <VoteSurface />;
   if (surface === "jury") return <JurySurface />;
@@ -155,6 +157,7 @@ export function App({ surface }: AppProps) {
       scores={scores}
       revealedJuryPoints={revealedJuryPoints}
       currentBulkAward={currentBulkAward}
+      nextJuryPreview={nextJuryPreview}
     />
   );
   if (surface === "beamer-a") return (
@@ -1473,7 +1476,8 @@ function TabletSurface({
   acts,
   scores,
   revealedJuryPoints,
-  currentBulkAward = []
+  currentBulkAward = [],
+  nextJuryPreview
 }: {
   state: ShowState;
   connected: boolean;
@@ -1482,6 +1486,7 @@ function TabletSurface({
   scores: DisplayScore[];
   revealedJuryPoints?: Record<string, number> | undefined;
   currentBulkAward?: JuryBulkAwardEntry[] | undefined;
+  nextJuryPreview?: JuryRevealStep | null | undefined;
 }) {
   const juryList = jurors.length > 0 ? jurors : demoJurors;
   const currentJuror = juryList[state.currentJurorIndex % juryList.length]!;
@@ -1499,7 +1504,9 @@ function TabletSurface({
 
   // Solange ein Reveal-Schritt ansteht, zählt das Tablet bis zum exakten
   // Umspring-Zeitpunkt des Beamers herunter (revealAt kommt vom Server),
-  // statt selbst eine künstliche Verzögerung einzuführen.
+  // statt selbst eine künstliche Verzögerung einzuführen. Ohne anstehenden
+  // Schritt zeigt das Tablet permanent die Vorschau auf den NÄCHSTEN Klick
+  // (nextJuryPreview vom Server), ohne Countdown.
   const [countdown, setCountdown] = useState(0);
   useEffect(() => {
     if (!pending) {
@@ -1513,8 +1520,9 @@ function TabletSurface({
     return () => window.clearInterval(timer);
   }, [pending?.revealAt]);
 
-  const pendingJuror = pending ? juryList[pending.currentJurorIndex % juryList.length] : undefined;
-  const pendingAct = pending?.actId ? acts.find((act) => act.id === pending.actId) : undefined;
+  const preview = pending ?? nextJuryPreview;
+  const previewJuror = preview ? juryList[preview.currentJurorIndex % juryList.length] : undefined;
+  const previewAct = preview?.actId ? acts.find((act) => act.id === preview.actId) : undefined;
 
   return (
     <div className="tablet-shell">
@@ -1536,15 +1544,15 @@ function TabletSurface({
           />
         </div>
         <section className="tablet-next" aria-labelledby="tablet-next-title">
-          {juryRevealMode && pending ? (
+          {juryRevealMode && preview ? (
             <>
-              <p>Gleich auf dem Beamer · in {countdown}s</p>
+              <p>{pending ? `Gleich auf dem Beamer · in ${countdown}s` : "Als Nächstes auf dem Beamer"}</p>
               <h1 id="tablet-next-title">
-                {pending.currentRevealPoint === -1 ? pendingJuror?.displayName ?? "—" : pendingAct?.country.displayName ?? "—"}
+                {preview.currentRevealPoint === -1 ? previewJuror?.displayName ?? "—" : previewAct?.country.displayName ?? "—"}
               </h1>
               <div className="tablet-points">
-                <span>{pending.currentRevealPoint === -1 ? "Name" : "Punkte"}</span>
-                <strong>{pending.currentRevealPoint === -1 ? countdown : pending.currentRevealPoint === 0 ? "1–7" : pending.currentRevealPoint}</strong>
+                <span>{preview.currentRevealPoint === -1 ? "Name" : "Punkte"}</span>
+                <strong>{preview.currentRevealPoint === -1 ? (pending ? countdown : "★") : preview.currentRevealPoint === 0 ? "1–7" : preview.currentRevealPoint}</strong>
               </div>
             </>
           ) : juryRevealMode ? (

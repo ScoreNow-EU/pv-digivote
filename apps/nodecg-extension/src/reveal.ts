@@ -49,6 +49,32 @@ export function revealedPointValues(currentRevealPoint: ShowState["currentReveal
   return values;
 }
 
+export interface JuryRevealStep {
+  currentJurorIndex: number;
+  currentRevealPoint: ShowState["currentRevealPoint"];
+  actId: string | null;
+}
+
+// Berechnet, was der NÄCHSTE Klick auf "Nächsten Punkt zeigen" enthüllen
+// würde, ohne den State zu verändern ("Peek"). Das Moderator-Tablet zeigt
+// diesen Schritt permanent als Vorschau, bevor die Regie überhaupt klickt.
+export function computeNextJuryStep(
+  orderedJurors: readonly { id: string }[],
+  ballotsByJuror: ReadonlyMap<string, BallotEntry[]>,
+  currentJurorIndex: number,
+  currentRevealPoint: ShowState["currentRevealPoint"]
+): JuryRevealStep {
+  const stageIndex = JURY_REVEAL_SEQUENCE.indexOf(currentRevealPoint);
+  const atEnd = stageIndex === JURY_REVEAL_SEQUENCE.length - 1;
+  const nextPoint = atEnd ? JURY_REVEAL_SEQUENCE[0]! : JURY_REVEAL_SEQUENCE[stageIndex + 1]!;
+  const nextJurorIndex = atEnd ? currentJurorIndex + 1 : currentJurorIndex;
+  const juror = orderedJurors[nextJurorIndex % Math.max(orderedJurors.length, 1)];
+  const actId = juror && nextPoint > 0
+    ? (ballotsByJuror.get(juror.id) ?? []).find((entry) => entry.points === nextPoint)?.actId ?? null
+    : null;
+  return { currentJurorIndex: nextJurorIndex, currentRevealPoint: nextPoint, actId };
+}
+
 export function computeJuryRevealProgress(
   actIds: readonly string[],
   orderedJurors: readonly { id: string }[],

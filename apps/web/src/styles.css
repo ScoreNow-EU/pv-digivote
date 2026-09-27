@@ -1348,7 +1348,7 @@ h3 {
 
 .beamer-reveal > h1 {
   margin-block-start: var(--space-md);
-  font-size: clamp(var(--text-3xl), 7vw, 7rem);
+  font-size: clamp(var(--text-3xl), 8vw, 9rem);
   letter-spacing: -0.055em;
 }
 
@@ -1359,7 +1359,7 @@ h3 {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-lg);
-  min-height: 21rem;
+  min-height: 23rem;
   padding: var(--space-2xl);
   border-radius: var(--radius-lg);
   background: var(--color-paper-3);
@@ -1368,7 +1368,7 @@ h3 {
 
 .beamer-award__flag {
   display: block;
-  width: clamp(4rem, 6vw, 7rem);
+  width: clamp(4.5rem, 7vw, 8rem);
   height: auto;
   border-radius: var(--radius-sm);
   box-shadow: 0 0 0 var(--rule-thin) var(--color-rule);
@@ -1378,7 +1378,7 @@ h3 {
   min-width: 0;
   overflow: hidden;
   font-family: var(--font-display);
-  font-size: clamp(var(--text-xl), 3vw, var(--text-3xl));
+  font-size: clamp(var(--text-2xl), 5vw, 6rem);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1387,7 +1387,7 @@ h3 {
 .beamer-award strong {
   color: var(--color-accent);
   font-family: var(--font-display);
-  font-size: clamp(7rem, 12vw, 14rem);
+  font-size: clamp(8rem, 14vw, 16rem);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.08em;
   line-height: 0.8;
@@ -1396,7 +1396,7 @@ h3 {
 .beamer-award small {
   grid-column: 3;
   color: var(--color-muted);
-  font-size: var(--text-md);
+  font-size: var(--text-lg);
   text-align: end;
 }
 
@@ -1418,18 +1418,22 @@ h3 {
 }
 
 .beamer-status > h1 {
-  font-size: clamp(var(--text-2xl), 6vw, var(--text-display));
+  font-size: clamp(var(--text-2xl), 7vw, 6rem);
   letter-spacing: -0.05em;
 }
 
 .beamer-status > span {
   color: var(--color-ink-2);
+  font-size: var(--text-xl);
+}
+
+.beamer-announce > p {
   font-size: var(--text-lg);
 }
 
 .beamer-announce > h1 {
   margin-block-start: var(--space-xs);
-  font-size: clamp(var(--text-3xl), 9vw, 8rem);
+  font-size: clamp(var(--text-3xl), 11vw, 11rem);
   letter-spacing: -0.06em;
 }
 
@@ -1444,27 +1448,28 @@ h3 {
 .beamer-bulk > p {
   color: var(--color-muted);
   font-family: var(--font-mono);
+  font-size: var(--text-lg);
 }
 
 .beamer-bulk > h1 {
   margin-block-start: var(--space-xs);
-  font-size: clamp(var(--text-2xl), 5vw, var(--text-display));
+  font-size: clamp(var(--text-2xl), 6vw, 7rem);
   letter-spacing: -0.05em;
 }
 
 .beamer-bulk__list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
   gap: var(--space-sm);
   margin-block-start: var(--space-md);
 }
 
 .beamer-bulk__row {
   display: grid;
-  grid-template-columns: 3rem auto minmax(0, 1fr);
+  grid-template-columns: 4rem auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
+  padding: var(--space-md) var(--space-lg);
   border: var(--rule-thin) solid var(--color-rule);
   border-radius: var(--radius-md);
   background: var(--color-paper-2);
@@ -1473,13 +1478,13 @@ h3 {
 .beamer-bulk__points {
   color: var(--color-accent);
   font-family: var(--font-display);
-  font-size: var(--text-xl);
+  font-size: clamp(var(--text-xl), 3vw, var(--text-3xl));
   font-variant-numeric: tabular-nums;
 }
 
 .beamer-bulk__flag {
   display: block;
-  width: 2.25rem;
+  width: 3.25rem;
   height: auto;
   border-radius: var(--radius-sm);
   box-shadow: 0 0 0 var(--rule-thin) var(--color-rule);
@@ -1488,6 +1493,8 @@ h3 {
 .beamer-bulk__country {
   min-width: 0;
   overflow: hidden;
+  font-size: clamp(var(--text-md), 2vw, var(--text-xl));
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1495,7 +1502,7 @@ h3 {
 .beamer-bulk__pending {
   grid-column: 2 / span 2;
   color: var(--color-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 
 .beamer-ranking {
