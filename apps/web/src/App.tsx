@@ -1546,13 +1546,13 @@ function TabletSurface({
         <section className="tablet-next" aria-labelledby="tablet-next-title">
           {juryRevealMode && preview ? (
             <>
-              <p>{pending ? `Gleich auf dem Beamer · in ${countdown}s` : "Als Nächstes auf dem Beamer"}</p>
+              <p>Als Nächstes auf dem Beamer</p>
               <h1 id="tablet-next-title">
                 {preview.currentRevealPoint === -1 ? previewJuror?.displayName ?? "—" : previewAct?.country.displayName ?? "—"}
               </h1>
               <div className="tablet-points">
                 <span>{preview.currentRevealPoint === -1 ? "Name" : "Punkte"}</span>
-                <strong>{preview.currentRevealPoint === -1 ? (pending ? countdown : "★") : preview.currentRevealPoint === 0 ? "1–7" : preview.currentRevealPoint}</strong>
+                <strong>{preview.currentRevealPoint === -1 ? "★" : preview.currentRevealPoint === 0 ? "1–7" : preview.currentRevealPoint}</strong>
               </div>
             </>
           ) : juryRevealMode ? (
@@ -1584,6 +1584,15 @@ function TabletSurface({
         </section>
       </main>
       <footer className="tablet-foot">Die Regie schaltet den nächsten Schritt frei.</footer>
+      {pending && (
+        <div className="tablet-countdown-overlay" role="status" aria-live="assertive">
+          <span className="tablet-countdown-overlay__label">Gleich auf dem Beamer</span>
+          <strong className="tablet-countdown-overlay__number">{countdown}</strong>
+          <span className="tablet-countdown-overlay__preview">
+            {pending.currentRevealPoint === -1 ? previewJuror?.displayName ?? "—" : previewAct?.country.displayName ?? "—"}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
