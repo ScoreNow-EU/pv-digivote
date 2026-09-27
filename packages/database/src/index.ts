@@ -471,6 +471,26 @@ export async function getJuryAward(eventId: string, jurorId: string, points: num
   return result.rows[0]?.act_id;
 }
 
+export async function getJuryBallotsByJuror(eventId: string): Promise<Map<string, BallotEntry[]>> {
+  const result = await requireDatabase().query<{
+    juror_id: string;
+    entries: BallotEntry[];
+  }>(`
+    select vs.juror_id,
+      jsonb_agg(jsonb_build_object('actId', be.act_id, 'points', be.points) order by be.points) as entries
+    from ballots b
+    join ballot_rounds br on br.id = b.round_id
+    join voter_sessions vs on vs.id = b.voter_session_id
+    join ballot_entries be on be.ballot_id = b.id
+    where br.event_id = $1
+      and br.type = 'JURY'
+      and b.status in ('SUBMITTED', 'LOCKED')
+      and vs.juror_id is not null
+    group by vs.juror_id
+  `, [eventId]);
+  return new Map(result.rows.map((row) => [row.juror_id, row.entries]));
+}
+
 export async function setRoundOpen(eventId: string, group: "JURY" | "PUBLIC", open: boolean): Promise<void> {
   await requireDatabase().query(`
     update ballot_rounds

@@ -9,6 +9,7 @@ import {
   fetchBootstrap,
   fetchMyBallot,
   loginJury,
+  runDemoVote,
   saveAdminActs,
   saveAdminJurors,
   saveBallot,
@@ -17,6 +18,7 @@ import {
   type AdminConfigResponse,
   type AdminJurorInput,
   type BootstrapResponse,
+  type JuryBulkAwardEntry,
   type PublicJuror
 } from "./api-client";
 
@@ -62,12 +64,34 @@ export function App({ surface }: AppProps) {
     juryPoints: row.juryPoints,
     publicPoints: row.publicPoints
   })) ?? demoScores;
+  const revealedJuryPoints = live.scores?.revealProgress;
+  const currentBulkAward = live.scores?.currentBulkAward ?? [];
 
   if (surface === "vote") return <VoteSurface />;
   if (surface === "jury") return <JurySurface />;
-  if (surface === "tablet") return <TabletSurface state={showState} connected={connected} jurors={jurors} acts={acts} scores={scores} />;
-  if (surface === "beamer-a") return <BeamerASurface state={showState} acts={acts} jurors={jurors} scores={scores} />;
-  if (surface === "beamer-b") return <BeamerBSurface state={showState} acts={acts} scores={scores} />;
+  if (surface === "tablet") return (
+    <TabletSurface
+      state={showState}
+      connected={connected}
+      jurors={jurors}
+      acts={acts}
+      scores={scores}
+      revealedJuryPoints={revealedJuryPoints}
+    />
+  );
+  if (surface === "beamer-a") return (
+    <BeamerASurface
+      state={showState}
+      acts={acts}
+      jurors={jurors}
+      scores={scores}
+      revealedJuryPoints={revealedJuryPoints}
+      currentBulkAward={currentBulkAward}
+    />
+  );
+  if (surface === "beamer-b") return (
+    <BeamerBSurface state={showState} acts={acts} scores={scores} revealedJuryPoints={revealedJuryPoints} />
+  );
   return (
     <ControllerSurface
       state={showState}
@@ -126,13 +150,13 @@ function ControllerSurface({
   requiresRunoff: boolean;
   runoff: BootstrapResponse["runoff"];
 }) {
-  const currentJuror = jurors[state.currentJurorIndex % jurors.length] ?? demoJurors[0]!;
-  const nextJuror = jurors[(state.currentJurorIndex + 1) % jurors.length] ?? demoJurors[1]!;
-  const currentAct: DisplayAct = acts.find((act) => act.id === state.currentActId) ?? acts[0] ?? demoActs[0]!;
   const [activeSection, setActiveSection] = useState<ControllerSection>("show");
   const [adminConfig, setAdminConfig] = useState<AdminConfigResponse>();
   const [adminError, setAdminError] = useState("");
   const [adminLoading, setAdminLoading] = useState(false);
+  const [demoPublicCount, setDemoPublicCount] = useState(20);
+  const [demoVoteState, setDemoVoteState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [demoVoteMessage, setDemoVoteMessage] = useState("");
 
   const refreshAdminConfig = async () => {
     setAdminLoading(true);
@@ -146,14 +170,43 @@ function ControllerSurface({
     }
   };
 
+  // Die Regie braucht jederzeit die echten Klarnamen (auch vor dem Bühnen-Reveal),
+  // deshalb wird hier – anders als bei Beamer/Tablet/Vote/Jury – die ungefilterte
+  // Admin-Quelle statt des öffentlichen Bootstraps verwendet.
   useEffect(() => {
-    if (activeSection !== "show" && !adminConfig && !adminLoading) void refreshAdminConfig();
-  }, [activeSection]);
+    void refreshAdminConfig();
+    const timer = window.setInterval(() => void refreshAdminConfig(), 4_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  const navigate = (section: ControllerSection) => {
-    setActiveSection(section);
-    if (section !== "show") void refreshAdminConfig();
+  const navigate = (section: ControllerSection) => setActiveSection(section);
+
+  const triggerDemoVote = async () => {
+    setDemoVoteState("loading");
+    setDemoVoteMessage("");
+    try {
+      const result = await runDemoVote(demoPublicCount);
+      if (!result.juryOpen && !result.publicOpen) {
+        setDemoVoteState("error");
+        setDemoVoteMessage("Weder Jury- noch Publikumsvoting sind geöffnet.");
+        return;
+      }
+      setDemoVoteState("done");
+      const parts: string[] = [];
+      if (result.juryOpen) parts.push(`${result.jurorsFilled} Jury-Stimmzettel`);
+      if (result.publicOpen) parts.push(`${result.publicBallotsCreated} Publikumsstimmen`);
+      setDemoVoteMessage(`Erzeugt: ${parts.join(" · ")}.`);
+    } catch (error) {
+      setDemoVoteState("error");
+      setDemoVoteMessage(error instanceof Error ? error.message : "Demo-Voting fehlgeschlagen.");
+    }
   };
+
+  const regieActs: DisplayAct[] = adminConfig?.acts ?? acts;
+  const regieJurors = adminConfig ? adminConfig.jurors.filter((juror) => juror.enabled) : jurors;
+  const currentJuror = regieJurors[state.currentJurorIndex % regieJurors.length] ?? demoJurors[0]!;
+  const nextJuror = regieJurors[(state.currentJurorIndex + 1) % regieJurors.length] ?? demoJurors[1]!;
+  const currentAct: DisplayAct = regieActs.find((act) => act.id === state.currentActId) ?? regieActs[0] ?? demoActs[0]!;
 
   return (
     <div className="controller-shell">
@@ -284,9 +337,8 @@ function ControllerSurface({
                 </StatusDot>
               </div>
               <dl className="compact-stats">
-                <div><dt>Gültig</dt><dd>{state.voting.validPublicBallots}</dd></div>
-                <div><dt>Jury</dt><dd>{state.voting.validJuryBallots}/{jurors.length || 10}</dd></div>
-                <div><dt>Gesperrt</dt><dd>0</dd></div>
+                <div><dt>Publikum</dt><dd>{state.voting.validPublicBallots}</dd></div>
+                <div><dt>Jury</dt><dd>{state.voting.validJuryBallots}/{regieJurors.length || 10}</dd></div>
               </dl>
               <button
                 className="button button--wide"
@@ -321,6 +373,45 @@ function ControllerSurface({
               )}
             </section>
 
+            <section className="panel demo-vote-control" aria-labelledby="demo-vote-title">
+              <div className="panel__head panel__head--compact">
+                <div>
+                  <p className="panel__label">Probe</p>
+                  <h2 id="demo-vote-title">Demo-Voting</h2>
+                </div>
+              </div>
+              <p className="panel__copy">
+                Vergibt zufällige, gültige Stimmzettel über die echte Abstimmung – für Proben und Technik-Checks.
+                Wirkt nur auf geöffnete Abstimmungen.
+              </p>
+              <label className="demo-vote-control__count">
+                Publikumsstimmen
+                <input
+                  type="number"
+                  min={0}
+                  max={500}
+                  value={demoPublicCount}
+                  onChange={(event) => setDemoPublicCount(Math.max(0, Math.min(500, Number(event.target.value))))}
+                />
+              </label>
+              <button
+                className="button button--quiet button--wide"
+                type="button"
+                disabled={demoVoteState === "loading" || (!state.voting.publicOpen && !state.voting.juryOpen)}
+                onClick={() => void triggerDemoVote()}
+              >
+                {demoVoteState === "loading" ? "Wird abgestimmt …" : "Zufällig abstimmen"}
+              </button>
+              {(!state.voting.publicOpen && !state.voting.juryOpen) && (
+                <p className="form-message">Öffne zuerst Jury- oder Publikumsvoting.</p>
+              )}
+              {demoVoteMessage && (
+                <p className={demoVoteState === "error" ? "form-message form-message--error" : "form-message form-message--success"} role="status">
+                  {demoVoteMessage}
+                </p>
+              )}
+            </section>
+
             {(requiresRunoff || runoff) && (
               <section className="panel runoff-control" aria-labelledby="runoff-control-title">
                 <p className="panel__label">Gleichstand</p>
@@ -337,7 +428,7 @@ function ControllerSurface({
             )}
           </div>
 
-          <Scoreboard phase={state.phase} acts={acts} scores={scores} showAllPublic />
+          <Scoreboard phase={state.phase} acts={regieActs} scores={scores} showAllPublic />
         </div>
       </main> : (
         <main className="controller-main admin-main">
@@ -707,26 +798,29 @@ function getRankedScores(
   acts: DisplayAct[],
   scores: DisplayScore[],
   revealedPublicActIds: readonly string[],
-  showAllPublic: boolean
+  showAllPublic: boolean,
+  juryPointsByAct: Record<string, number> | undefined
 ) {
   const revealSet = new Set(revealedPublicActIds);
   const allPublicVisible = showAllPublic || ["FINALE", "STICHWAHL", "STICHWAHL_OFFEN", "STICHWAHL_GESCHLOSSEN"].includes(phase);
   return scores
     .map((score) => {
       const publicVisible = allPublicVisible || (phase === "PUBLIC_REVEAL" && revealSet.has(score.actId));
+      const visibleJuryPoints = juryPointsByAct?.[score.actId] ?? score.juryPoints;
       return {
         ...score,
         act: acts.find((act) => act.id === score.actId)!,
+        visibleJuryPoints,
         visiblePublicPoints: publicVisible ? score.publicPoints : 0,
-        total: score.juryPoints + (publicVisible ? score.publicPoints : 0)
+        total: visibleJuryPoints + (publicVisible ? score.publicPoints : 0)
       };
     })
     .filter((row) => Boolean(row.act))
     .sort((left, right) => {
-      if (allPublicVisible && left.rank !== undefined && right.rank !== undefined) return left.rank - right.rank;
+      if (allPublicVisible && !juryPointsByAct && left.rank !== undefined && right.rank !== undefined) return left.rank - right.rank;
       return right.total - left.total
         || right.visiblePublicPoints - left.visiblePublicPoints
-        || right.juryPoints - left.juryPoints
+        || right.visibleJuryPoints - left.visibleJuryPoints
         || left.actId.localeCompare(right.actId, "de");
     });
 }
@@ -737,7 +831,8 @@ function Scoreboard({
   scores,
   projector = false,
   revealedPublicActIds = [],
-  showAllPublic = false
+  showAllPublic = false,
+  juryPointsByAct
 }: {
   phase: ShowPhase;
   acts: DisplayAct[];
@@ -745,10 +840,11 @@ function Scoreboard({
   projector?: boolean;
   revealedPublicActIds?: readonly string[];
   showAllPublic?: boolean;
+  juryPointsByAct?: Record<string, number> | undefined;
 }) {
   const rows = useMemo(
-    () => getRankedScores(phase, acts, scores, revealedPublicActIds, showAllPublic),
-    [phase, acts, scores, revealedPublicActIds, showAllPublic]
+    () => getRankedScores(phase, acts, scores, revealedPublicActIds, showAllPublic, juryPointsByAct),
+    [phase, acts, scores, revealedPublicActIds, showAllPublic, juryPointsByAct]
   );
   return (
     <section className={projector ? "scoreboard scoreboard--projector" : "scoreboard panel"} aria-labelledby="scoreboard-title">
@@ -770,7 +866,7 @@ function Scoreboard({
               fallback={row.act.country.flag}
             />
             <span className="score-row__country">{row.act.country.displayName}</span>
-            <span className="score-row__jury"><small>Jury</small>{row.juryPoints}</span>
+            <span className="score-row__jury"><small>Jury</small>{row.visibleJuryPoints}</span>
             {row.visiblePublicPoints > 0 && <span className="score-row__public"><small>Public</small>{row.visiblePublicPoints}</span>}
             <strong className="score-row__total">{row.total}</strong>
           </li>
@@ -1150,13 +1246,15 @@ function TabletSurface({
   connected,
   jurors,
   acts,
-  scores
+  scores,
+  revealedJuryPoints
 }: {
   state: ShowState;
   connected: boolean;
   jurors: Array<{ id: string; displayName: string }>;
   acts: DisplayAct[];
   scores: DisplayScore[];
+  revealedJuryPoints?: Record<string, number> | undefined;
 }) {
   const juryList = jurors.length > 0 ? jurors : demoJurors;
   const currentJuror = juryList[state.currentJurorIndex % juryList.length]!;
@@ -1190,6 +1288,16 @@ function TabletSurface({
             <small>Punkte</small>
           </div>
         </section>
+        <div className="tablet-scoreboard">
+          <Scoreboard
+            phase={state.phase}
+            acts={acts}
+            scores={scores}
+            projector
+            revealedPublicActIds={state.revealedPublicActIds}
+            juryPointsByAct={revealedJuryPoints}
+          />
+        </div>
       </main>
       <footer className="tablet-foot">Die Regie schaltet den nächsten Schritt frei.</footer>
     </div>
@@ -1210,12 +1318,16 @@ function BeamerASurface({
   state,
   acts,
   jurors,
-  scores
+  scores,
+  revealedJuryPoints,
+  currentBulkAward = []
 }: {
   state: ShowState;
   acts: DisplayAct[];
   jurors: Array<{ id: string; displayName: string }>;
   scores: DisplayScore[];
+  revealedJuryPoints?: Record<string, number> | undefined;
+  currentBulkAward?: JuryBulkAwardEntry[] | undefined;
 }) {
   const juryList = jurors.length > 0 ? jurors : demoJurors;
   const juror = juryList[state.currentJurorIndex % juryList.length]!;
@@ -1228,7 +1340,46 @@ function BeamerASurface({
             <div><p>PastEurovision 2026</p><h1>{phaseLabels[state.phase]}</h1></div>
             <span>Live-Rangliste</span>
           </div>
-          <Scoreboard phase={state.phase} acts={acts} scores={scores} projector revealedPublicActIds={state.revealedPublicActIds} />
+          <Scoreboard
+            phase={state.phase}
+            acts={acts}
+            scores={scores}
+            projector
+            revealedPublicActIds={state.revealedPublicActIds}
+            juryPointsByAct={revealedJuryPoints}
+          />
+        </main>
+      </BeamerFrame>
+    );
+  }
+  if (state.phase === "JURY_REVEAL" && state.currentRevealPoint === 0) {
+    return (
+      <BeamerFrame>
+        <main className="beamer-bulk">
+          <p>Die Punkte von</p>
+          <h1>{juror.displayName}</h1>
+          <ol className="beamer-bulk__list">
+            {[1, 2, 3, 4, 5, 6, 7].map((points) => {
+              const award = currentBulkAward.find((entry) => entry.points === points);
+              const bulkAct = award ? acts.find((entry) => entry.id === award.actId) : undefined;
+              return (
+                <li key={points} className="beamer-bulk__row">
+                  <strong className="beamer-bulk__points">{points}</strong>
+                  {bulkAct ? (
+                    <>
+                      <CountryFlag
+                        className="beamer-bulk__flag"
+                        code={bulkAct.country.isoCode}
+                        label={bulkAct.country.displayName}
+                        fallback={bulkAct.country.flag}
+                      />
+                      <span className="beamer-bulk__country">{bulkAct.country.displayName}</span>
+                    </>
+                  ) : <span className="beamer-bulk__pending">Wird vorbereitet …</span>}
+                </li>
+              );
+            })}
+          </ol>
         </main>
       </BeamerFrame>
     );
@@ -1246,7 +1397,7 @@ function BeamerASurface({
             fallback={act.country.flag}
           />
           <span className="beamer-award__country">{act.country.displayName}</span>
-          <strong>{state.currentRevealPoint === 0 ? "1–7" : state.currentRevealPoint}</strong>
+          <strong>{state.currentRevealPoint}</strong>
           <small>Punkte</small>
         </div>
       </main>
@@ -1254,7 +1405,17 @@ function BeamerASurface({
   );
 }
 
-function BeamerBSurface({ state, acts, scores }: { state: ShowState; acts: DisplayAct[]; scores: DisplayScore[] }) {
+function BeamerBSurface({
+  state,
+  acts,
+  scores,
+  revealedJuryPoints
+}: {
+  state: ShowState;
+  acts: DisplayAct[];
+  scores: DisplayScore[];
+  revealedJuryPoints?: Record<string, number> | undefined;
+}) {
   return (
     <BeamerFrame>
       <main className="beamer-ranking">
@@ -1262,7 +1423,14 @@ function BeamerBSurface({ state, acts, scores }: { state: ShowState; acts: Displ
           <div><p>PastEurovision 2026</p><h1>{phaseLabels[state.phase]}</h1></div>
           <span>Zwischenstand</span>
         </div>
-        <Scoreboard phase={state.phase} acts={acts} scores={scores} projector revealedPublicActIds={state.revealedPublicActIds} />
+        <Scoreboard
+          phase={state.phase}
+          acts={acts}
+          scores={scores}
+          projector
+          revealedPublicActIds={state.revealedPublicActIds}
+          juryPointsByAct={revealedJuryPoints}
+        />
       </main>
     </BeamerFrame>
   );

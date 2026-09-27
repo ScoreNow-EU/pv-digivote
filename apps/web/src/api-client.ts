@@ -45,6 +45,11 @@ export interface BootstrapResponse {
   };
 }
 
+export interface JuryBulkAwardEntry {
+  actId: string;
+  points: number;
+}
+
 export interface ScoreResponse {
   ok: true;
   rows: ScoreRow[];
@@ -54,6 +59,8 @@ export interface ScoreResponse {
   publicAllocatedTotal: number;
   requiresRunoff: boolean;
   runoffActIds: string[];
+  revealProgress: Record<string, number>;
+  currentBulkAward: JuryBulkAwardEntry[];
 }
 
 export interface AdminActInput {
@@ -152,6 +159,18 @@ export function saveAdminActs(acts: AdminActInput[]): Promise<{ ok: true }> {
 
 export function saveAdminJurors(jurors: AdminJurorInput[]): Promise<{ ok: true }> {
   return requestJson("/admin/jurors", { method: "PUT", body: JSON.stringify({ jurors }) });
+}
+
+export interface DemoVoteResult {
+  ok: true;
+  jurorsFilled: number;
+  publicBallotsCreated: number;
+  juryOpen: boolean;
+  publicOpen: boolean;
+}
+
+export function runDemoVote(publicCount: number): Promise<DemoVoteResult> {
+  return requestJson("/admin/demo-vote", { method: "POST", body: JSON.stringify({ publicCount }) });
 }
 
 export function useLiveBackend(enabled: boolean) {

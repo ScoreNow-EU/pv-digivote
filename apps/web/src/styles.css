@@ -499,6 +499,33 @@ h3 {
   margin-block-start: var(--space-sm);
 }
 
+.demo-vote-control {
+  padding: var(--space-lg);
+}
+
+.demo-vote-control__count {
+  display: grid;
+  gap: var(--space-xs);
+  margin-block-start: var(--space-md);
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+}
+
+.demo-vote-control__count input {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.demo-vote-control > .button {
+  margin-block-start: var(--space-md);
+}
+
 .config-panel {
   padding: var(--space-lg);
 }
@@ -735,7 +762,7 @@ h3 {
 
 .compact-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-sm);
   margin-block: var(--space-lg);
 }
@@ -1172,9 +1199,17 @@ h3 {
 .tablet-main {
   display: grid;
   grid-template-columns: minmax(12rem, 0.45fr) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   align-items: stretch;
   gap: var(--space-lg);
   padding-block: var(--space-xl);
+  min-height: 0;
+}
+
+.tablet-scoreboard {
+  grid-column: 1 / -1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .tablet-now,
@@ -1364,6 +1399,71 @@ h3 {
   color: var(--color-muted);
   font-size: var(--text-md);
   text-align: end;
+}
+
+.beamer-bulk {
+  position: relative;
+  z-index: var(--z-raised);
+  align-self: center;
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.beamer-bulk > p {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+}
+
+.beamer-bulk > h1 {
+  margin-block-start: var(--space-xs);
+  font-size: clamp(var(--text-2xl), 5vw, var(--text-display));
+  letter-spacing: -0.05em;
+}
+
+.beamer-bulk__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-sm);
+  margin-block-start: var(--space-md);
+}
+
+.beamer-bulk__row {
+  display: grid;
+  grid-template-columns: 3rem auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: var(--color-paper-2);
+}
+
+.beamer-bulk__points {
+  color: var(--color-accent);
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-variant-numeric: tabular-nums;
+}
+
+.beamer-bulk__flag {
+  display: block;
+  width: 2.25rem;
+  height: auto;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 var(--rule-thin) var(--color-rule);
+}
+
+.beamer-bulk__country {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.beamer-bulk__pending {
+  grid-column: 2 / span 2;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
 }
 
 .beamer-ranking {

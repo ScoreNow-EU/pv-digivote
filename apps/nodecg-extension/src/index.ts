@@ -9,6 +9,7 @@ import {
   showPhaseSchema,
   showStateSchema,
   validateEscBallot,
+  type BallotEntry,
   type ShowState
 } from "@pv/domain";
 import {
@@ -17,6 +18,7 @@ import {
   getCountingBallots,
   getCurrentBallot,
   getJuryAward,
+  getJuryBallotsByJuror,
   getOrCreateJurySession,
   getOrCreatePublicSession,
   getLatestRunoff,
@@ -40,6 +42,7 @@ import {
 } from "@pv/database";
 import { computeScoreboard } from "@pv/scoring";
 import { z } from "zod";
+import { computeJuryRevealProgress, publicBundle } from "./reveal";
 
 const ltcFrameSchema = z.object({
   value: z.string().regex(/^\d{2}:\d{2}:\d{2}:\d{2}$/),
@@ -109,19 +112,6 @@ function parseCookies(header: string | undefined): Record<string, string> {
     if (!rawName) return [];
     return [[decodeURIComponent(rawName), decodeURIComponent(rawValue.join("="))]];
   }));
-}
-
-function publicBundle(bundle: EventBundle) {
-  return {
-    event: bundle.event,
-    acts: bundle.acts.map((act) => ({
-      ...act,
-      artistNames: act.identityRevealed ? act.artistNames : []
-    })),
-    jurors: bundle.jurors
-      .filter((juror) => juror.enabled)
-      .map(({ id, displayName, type, revealOrder }) => ({ id, displayName, type, revealOrder }))
-  };
 }
 
 function nextRevision(state: ShowState, patch: Partial<ShowState>): ShowState {
@@ -646,7 +636,10 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       return;
     }
     const config = eventConfigSchema.parse(bundle.event.config);
-    const ballots = await getCountingBallots(bundle.event.id);
+    const [ballots, juryEntriesByJuror] = await Promise.all([
+      getCountingBallots(bundle.event.id),
+      getJuryBallotsByJuror(bundle.event.id)
+    ]);
     const scoreboard = computeScoreboard({
       actIds: bundle.acts.map((act) => act.id),
       juryBallots: ballots.jury,
@@ -655,7 +648,92 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       juryWeight: config.weights.jury,
       publicWeight: config.weights.public
     });
-    response.json({ ok: true, ...scoreboard });
+    const state = readState();
+    const orderedJurors = bundle.jurors.filter((juror) => juror.enabled);
+    const revealProgress = computeJuryRevealProgress(
+      bundle.acts.map((act) => act.id),
+      orderedJurors,
+      juryEntriesByJuror,
+      state.currentJurorIndex,
+      state.currentRevealPoint
+    );
+    const currentJuror = orderedJurors[state.currentJurorIndex];
+    const currentBulkAward = currentJuror
+      ? (juryEntriesByJuror.get(currentJuror.id) ?? [])
+          .filter((entry) => entry.points >= 1 && entry.points <= 7)
+          .sort((left, right) => left.points - right.points)
+      : [];
+    response.json({ ok: true, ...scoreboard, revealProgress, currentBulkAward });
+  }));
+
+  const demoVoteRequestSchema = z.object({
+    publicCount: z.number().int().min(0).max(500).default(20)
+  });
+
+  api.post("/admin/demo-vote", route(async (request, response) => {
+    const parsed = demoVoteRequestSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      response.status(400).json({ ok: false, error: "INVALID_REQUEST", message: "Ungültige Demo-Voting-Anfrage." });
+      return;
+    }
+    const bundle = await getActiveEventBundle();
+    if (!bundle) {
+      response.status(503).json({ ok: false, error: "NO_EVENT" });
+      return;
+    }
+    const rounds = await getRoundStatuses(bundle.event.id);
+    const actIds = bundle.acts.map((act) => act.id);
+    const pointScale = eventConfigSchema.parse(bundle.event.config).pointScale;
+
+    const randomBallotEntries = (blocked: ReadonlySet<string>): BallotEntry[] | undefined => {
+      const eligible = actIds.filter((actId) => !blocked.has(actId));
+      if (eligible.length < pointScale.length) return undefined;
+      const shuffled = [...eligible].sort(() => Math.random() - 0.5).slice(0, pointScale.length);
+      const scale = [...pointScale].sort(() => Math.random() - 0.5);
+      return shuffled.map((actId, index) => ({ actId, points: scale[index]! }));
+    };
+
+    let jurorsFilled = 0;
+    if (rounds.juryOpen) {
+      for (const juror of bundle.jurors.filter((entry) => entry.enabled)) {
+        const session = await getOrCreateJurySession(bundle.event.id, juror.id);
+        const existing = await getCurrentBallot(session.id, "JURY");
+        if (existing) continue;
+        const blocked = getBlockedActIds(juror, bundle.artists, bundle.event.config.selfVotePolicy);
+        const entries = randomBallotEntries(blocked);
+        if (!entries) continue;
+        await submitBallot({
+          eventId: bundle.event.id,
+          group: "JURY",
+          voterSessionId: session.id,
+          entries
+        });
+        jurorsFilled += 1;
+      }
+    }
+
+    let publicBallotsCreated = 0;
+    if (rounds.publicOpen && actIds.length >= pointScale.length) {
+      for (let index = 0; index < parsed.data.publicCount; index += 1) {
+        const session = await getOrCreatePublicSession(bundle.event.id, randomBytes(32).toString("hex"));
+        await submitBallot({
+          eventId: bundle.event.id,
+          group: "PUBLIC",
+          voterSessionId: session.id,
+          entries: randomBallotEntries(new Set())!
+        });
+        publicBallotsCreated += 1;
+      }
+    }
+
+    await refreshVotingCounts(bundle);
+    response.json({
+      ok: true,
+      jurorsFilled,
+      publicBallotsCreated,
+      juryOpen: rounds.juryOpen,
+      publicOpen: rounds.publicOpen
+    });
   }));
 
   api.get("/health", async (_request, response) => {
