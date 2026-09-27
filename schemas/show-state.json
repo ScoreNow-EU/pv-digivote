@@ -38,7 +38,7 @@
     "paused": { "type": "boolean" },
     "currentActId": { "type": ["string", "null"] },
     "currentJurorIndex": { "type": "integer", "minimum": 0 },
-    "currentRevealPoint": { "enum": [0, 8, 10, 12] },
+    "currentRevealPoint": { "enum": [-1, 0, 8, 10, 12] },
     "currentPublicRevealIndex": { "type": "integer", "minimum": 0 },
     "revealedPublicActIds": {
       "type": "array",
