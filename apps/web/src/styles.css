@@ -886,6 +886,20 @@ h3 {
   text-align: end;
 }
 
+.score-row--pending {
+  opacity: 0.55;
+}
+
+.score-row__total--pending {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-style: italic;
+  text-align: end;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 @keyframes score-enter {
   from { opacity: 0; }
   to { opacity: 1; }

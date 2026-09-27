@@ -1055,7 +1055,8 @@ function getRankedScores(
         visibleJuryPoints,
         visiblePublicPoints,
         total: visibleJuryPoints + visiblePublicPoints,
-        justAwarded: justAwarded?.get(score.actId)
+        justAwarded: justAwarded?.get(score.actId),
+        publicPending: phase === "PUBLIC_REVEAL" && !publicVisible
       };
     })
     .filter((row) => Boolean(row.act))
@@ -1116,7 +1117,13 @@ function Scoreboard({
       </header>
       <ol className="score-list" style={projector ? { gridTemplateRows: `repeat(${rowCount}, minmax(0, 1fr))` } : undefined}>
         {rows.map((row, index) => (
-          <li key={row.actId} className={index < 3 ? `score-row score-row--top-${index + 1}` : "score-row"}>
+          <li
+            key={row.actId}
+            className={[
+              index < 3 ? `score-row score-row--top-${index + 1}` : "score-row",
+              row.publicPending && "score-row--pending"
+            ].filter(Boolean).join(" ")}
+          >
             <span className="score-row__rank">{index + 1}</span>
             <CountryFlag
               className="score-row__flag"
@@ -1126,7 +1133,11 @@ function Scoreboard({
             />
             {!compact && <span className="score-row__country">{row.act.country.displayName}</span>}
             {row.justAwarded !== undefined && <span className="score-row__award">+{row.justAwarded}</span>}
-            <strong className="score-row__total">{row.total}</strong>
+            {row.publicPending ? (
+              <span className="score-row__total score-row__total--pending" title="Publikumsstimmen noch nicht enthüllt">offen</span>
+            ) : (
+              <strong className="score-row__total">{row.total}</strong>
+            )}
           </li>
         ))}
       </ol>
