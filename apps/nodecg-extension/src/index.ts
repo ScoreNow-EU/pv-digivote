@@ -56,6 +56,15 @@ const ltcFrameSchema = z.object({
   receivedAt: z.string().datetime()
 });
 
+// Gezielter Klarname-Reveal von ShowTC (Reveal-Marke in dessen Timeline). Zuordnung über ISO-Code,
+// sonst Startnummer, sonst Ländername.
+const actRevealSchema = z.object({
+  countryIsoCode: z.string().max(8).optional(),
+  countryName: z.string().max(120).optional(),
+  startNumber: z.number().int().positive().max(99).optional(),
+  timecode: z.string().max(32).optional()
+});
+
 const juryLoginSchema = z.object({
   jurorId: z.string().min(1).max(128),
   pin: z.string().regex(/^\d{4}$/)
@@ -906,6 +915,45 @@ function extension(nodecg: NodeCG.ServerAPI): void {
             nodecg.log.info(`Timecode-Cue ausgelöst: ${cue.eventType} @ ${cue.timecode}`);
           })().catch((error: unknown) => nodecg.log.error(`Timecode-Cue fehlgeschlagen: ${String(error)}`));
         }
+      });
+
+      // Eigenes Ereignis außerhalb der NodeCG-Typen (wie emitUntyped oben).
+      const onUntyped = socket.on.bind(socket) as unknown as (eventName: string, listener: (payload: unknown, ack?: (result: unknown) => void) => void) => void;
+      onUntyped("act:reveal", (payload, ack) => {
+        const parsed = actRevealSchema.safeParse(payload);
+        if (!parsed.success) {
+          ack?.({ ok: false, error: "Ungültige Reveal-Anfrage" });
+          return;
+        }
+        void getActiveEventBundle().then(async (bundle) => {
+          const { countryIsoCode, countryName, startNumber, timecode } = parsed.data;
+          const acts = bundle?.acts ?? [];
+          const iso = countryIsoCode?.trim().toUpperCase();
+          const name = countryName?.trim().toLowerCase();
+          const act = (iso ? acts.find((a) => a.country.isoCode === iso) : undefined)
+            ?? (startNumber !== undefined ? acts.find((a) => a.startNumber === startNumber) : undefined)
+            ?? (name ? acts.find((a) => a.country.displayName.toLowerCase() === name) : undefined);
+          if (!act) {
+            nodecg.log.warn(`Klarname-Reveal von ShowTC: kein Act für ${iso ?? startNumber ?? countryName ?? "?"}`);
+            ack?.({ ok: false, error: `Kein Act für ${iso ?? startNumber ?? countryName ?? "?"}` });
+            return;
+          }
+          await revealActIdentity(act.id);
+          update({ phase: "AUFTRITT", currentActId: act.id });
+          emitBridgeCue({
+            eventType: "ACT_IDENTITY_REVEAL",
+            actId: act.id,
+            countryIsoCode: act.country.isoCode,
+            startNumber: act.startNumber,
+            timecode: timecode ?? null,
+            source: "SHOWTC"
+          });
+          nodecg.log.info(`Klarname-Reveal von ShowTC: ${act.country.displayName}${timecode ? ` @ ${timecode}` : ""}`);
+          ack?.({ ok: true, actId: act.id, country: act.country.displayName });
+        }).catch((error: unknown) => {
+          nodecg.log.error(`Klarname-Reveal von ShowTC fehlgeschlagen: ${String(error)}`);
+          ack?.({ ok: false, error: String(error) });
+        });
       });
 
       socket.on("disconnect", () => {

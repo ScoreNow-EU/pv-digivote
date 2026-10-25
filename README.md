@@ -131,6 +131,10 @@ $env:BRIDGE_TOKEN="dev-bridge-token"
 pnpm bridge:simulate
 ```
 
+## ShowTC als Show-Bridge
+
+ShowTC (Timecode-Player der Show) meldet sich mit `BRIDGE_TOKEN` am Namespace `/pv-digivote-bridge` an und gibt Klarnamen gezielt frei: Ereignis `act:reveal` mit `countryIsoCode` (sonst `startNumber` oder `countryName`) und optional `timecode`. DigiVote gibt den Act frei, setzt die Phase AUFTRITT, sendet `ACT_IDENTITY_REVEAL` (`source: SHOWTC`) an die Bridge und bestätigt per Ack `{ ok, actId, country }` bzw. `{ ok: false, error }`. Timecode-Cues aus der Datenbank werden dafür nicht gebraucht.
+
 ## Docker
 
 ```powershell
