@@ -759,7 +759,7 @@ function ParticipantsAdmin({ config, onSaved }: { config: AdminConfigResponse; o
       <div className="editor-toolbar">
         <div>
           <strong>{rows.length} Acts</strong>
-          <span>Erlaubt sind 12 bis 15. Die Flagge folgt automatisch dem ISO-Ländercode.</span>
+          <span>Erlaubt sind 12 bis 15, Rückzieher zählen mit. Die Flagge folgt automatisch dem ISO-Ländercode.</span>
         </div>
         <button className="button button--quiet" type="button" disabled={rows.length >= 15} onClick={add}>Act hinzufügen</button>
       </div>

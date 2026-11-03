@@ -135,6 +135,8 @@ pnpm bridge:simulate
 
 ShowTC (Timecode-Player der Show) meldet sich mit `BRIDGE_TOKEN` am Namespace `/pv-digivote-bridge` an und gibt Klarnamen gezielt frei: Ereignis `act:reveal` mit `countryIsoCode` (sonst `startNumber` oder `countryName`) und optional `timecode`. DigiVote gibt den Act frei, setzt die Phase AUFTRITT, sendet `ACT_IDENTITY_REVEAL` (`source: SHOWTC`) an die Bridge und bestätigt per Ack `{ ok, actId, country }` bzw. `{ ok: false, error }`. Timecode-Cues aus der Datenbank werden dafür nicht gebraucht.
 
+Rückzieher meldet ShowTC mit `acts:withdrawals` (`countries: [{ countryIsoCode?, countryName, withdrawn }]`), sofort und bei jeder Verbindung. Betroffene Acts werden inaktiv und merken sich `withdrawn`. Jury-Zugänge vom Typ ARTIST ohne weiteren aktiven Act werden gesperrt, ihre Sitzungen beendet und bei der Rücknahme wieder freigegeben; manuell gesperrte Zugänge bleiben gesperrt. Länder, die ShowTC nicht meldet, bleiben unberührt. Rückzieher zählen bei der Untergrenze von 12 Acts mit.
+
 ## Docker
 
 ```powershell

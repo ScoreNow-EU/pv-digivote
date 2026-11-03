@@ -36,6 +36,8 @@ import {
   setRoundOpen,
   setSessionTokenHash,
   submitBallot,
+  syncActWithdrawals,
+  countWithdrawnActs,
   updateEventConfig,
   verifyJurorPin,
   type EventBundle,
@@ -65,6 +67,15 @@ const actRevealSchema = z.object({
   timecode: z.string().max(32).optional()
 });
 
+// Abgleich der Rückzieher von ShowTC: vollständige Liste seiner Länder.
+const actWithdrawalsSchema = z.object({
+  countries: z.array(z.object({
+    countryIsoCode: z.string().max(8).optional(),
+    countryName: z.string().trim().min(1).max(120),
+    withdrawn: z.boolean()
+  })).max(64)
+});
+
 const juryLoginSchema = z.object({
   jurorId: z.string().min(1).max(128),
   pin: z.string().regex(/^\d{4}$/)
@@ -86,7 +97,8 @@ const editableActSchema = z.object({
 });
 
 const actsAdminSchema = z.object({
-  acts: z.array(editableActSchema).min(12).max(15)
+  // Untergrenze 12 prüft die Route; zurückgezogene Acts zählen dort mit.
+  acts: z.array(editableActSchema).min(1).max(15)
 }).superRefine(({ acts }, context) => {
   const startNumbers = acts.map((act) => act.startNumber);
   if (new Set(startNumbers).size !== startNumbers.length) {
@@ -528,6 +540,10 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       response.status(503).json({ ok: false, error: "NO_EVENT" });
       return;
     }
+    if (parsed.data.acts.length + await countWithdrawnActs(bundle.event.id) < 12) {
+      response.status(400).json({ ok: false, error: "Es müssen mindestens 12 Acts sein (Rückzieher zählen mit)." });
+      return;
+    }
     await replaceEventActs(bundle.event.id, parsed.data.acts.map((act) => ({
       ...(act.id ? { id: act.id } : {}),
       startNumber: act.startNumber,
@@ -952,6 +968,36 @@ function extension(nodecg: NodeCG.ServerAPI): void {
           ack?.({ ok: true, actId: act.id, country: act.country.displayName });
         }).catch((error: unknown) => {
           nodecg.log.error(`Klarname-Reveal von ShowTC fehlgeschlagen: ${String(error)}`);
+          ack?.({ ok: false, error: String(error) });
+        });
+      });
+
+      onUntyped("acts:withdrawals", (payload, ack) => {
+        const parsed = actWithdrawalsSchema.safeParse(payload);
+        if (!parsed.success) {
+          ack?.({ ok: false, error: "Ungültiger Abgleich der Rückzieher" });
+          return;
+        }
+        void getActiveEventBundle().then(async (bundle) => {
+          if (!bundle) {
+            ack?.({ ok: false, error: "Kein aktives Event" });
+            return;
+          }
+          const result = await syncActWithdrawals(bundle.event.id, parsed.data.countries.map((country) => ({
+            ...(country.countryIsoCode ? { countryIsoCode: country.countryIsoCode } : {}),
+            countryName: country.countryName,
+            withdrawn: country.withdrawn
+          })));
+          if (result.withdrawn.length + result.restored.length > 0) {
+            // Ein zurückgezogener Act kann nicht mehr der laufende sein. Die Oberflächen laden die Acts selbst alle 2 s.
+            const current = readState();
+            if (current.currentActId && result.withdrawnActIds.includes(current.currentActId)) update({ currentActId: null });
+            await refreshVotingCounts();
+            nodecg.log.info(`Rückzieher von ShowTC: ${JSON.stringify(result)}`);
+          }
+          ack?.({ ok: true, ...result });
+        }).catch((error: unknown) => {
+          nodecg.log.error(`Abgleich der Rückzieher fehlgeschlagen: ${String(error)}`);
           ack?.({ ok: false, error: String(error) });
         });
       });

@@ -531,6 +531,120 @@ export async function revealActIdentity(actId: string): Promise<void> {
   await requireDatabase().query("update acts set identity_revealed = true where id = $1", [actId]);
 }
 
+export interface ActWithdrawalInput {
+  countryIsoCode?: string;
+  countryName: string;
+  withdrawn: boolean;
+}
+
+export interface ActWithdrawalResult {
+  /** Ländernamen der Acts, die gerade zurückgezogen wurden. */
+  withdrawn: string[];
+  /** Ländernamen der Acts, deren Rückzug zurückgenommen wurde. */
+  restored: string[];
+  /** Meldungen ohne passenden Act. */
+  missing: string[];
+  jurorsDisabled: string[];
+  jurorsRestored: string[];
+  withdrawnActIds: string[];
+}
+
+export async function countWithdrawnActs(eventId: string): Promise<number> {
+  const result = await requireDatabase().query<{ count: string }>(
+    "select count(*) from acts where event_id = $1 and withdrawn = true",
+    [eventId]
+  );
+  return Number(result.rows[0]?.count ?? 0);
+}
+
+/**
+ * Gleicht zurückgezogene Acts ab. Es werden nur Acts der gemeldeten Länder angefasst. Jury-Zugänge
+ * von Artists ohne weiteren aktiven Act werden gesperrt (die Person stimmt dann als Publikum ab)
+ * und beim Rücknehmen wieder freigegeben. Manuell gesperrte Zugänge bleiben gesperrt.
+ */
+export async function syncActWithdrawals(eventId: string, inputs: readonly ActWithdrawalInput[]): Promise<ActWithdrawalResult> {
+  const client = await requireDatabase().connect();
+  const result: ActWithdrawalResult = { withdrawn: [], restored: [], missing: [], jurorsDisabled: [], jurorsRestored: [], withdrawnActIds: [] };
+  try {
+    await client.query("begin");
+    for (const input of inputs) {
+      const iso = input.countryIsoCode?.trim().toUpperCase() || null;
+      const params = [eventId, iso, input.countryName.trim()];
+      const match = `
+        event_id = $1 and country_id in (
+          select id from countries
+          where ($2::text is not null and iso_code = $2)
+             or ($2::text is null and lower(display_name) = lower($3))
+        )`;
+      if (input.withdrawn) {
+        const changed = await client.query<{ id: string }>(`update acts set active = false, withdrawn = true where ${match} and active = true returning id`, params);
+        result.withdrawnActIds.push(...changed.rows.map((row) => row.id));
+        if (changed.rows.length > 0) {
+          result.withdrawn.push(input.countryName);
+        } else {
+          const known = await client.query(`select 1 from acts where ${match} and withdrawn = true`, params);
+          if (known.rows.length === 0) result.missing.push(input.countryName);
+        }
+      } else {
+        const changed = await client.query(`update acts set active = true, withdrawn = false where ${match} and withdrawn = true returning id`, params);
+        if (changed.rows.length > 0) {
+          result.restored.push(input.countryName);
+        } else {
+          const known = await client.query(`select 1 from acts where ${match} and active = true`, params);
+          if (known.rows.length === 0) result.missing.push(input.countryName);
+        }
+      }
+    }
+
+    const hasActiveAct = `exists (
+      select 1 from juror_artists ja
+      join act_artists aa on aa.artist_id = ja.artist_id
+      join acts a on a.id = aa.act_id
+      where ja.juror_id = jurors.id and a.active = true
+    )`;
+    const disabled = await client.query<{ id: string; display_name: string }>(`
+      update jurors set enabled = false, withdrawn_disabled = true
+      where event_id = $1 and type = 'ARTIST' and enabled = true
+        and exists (
+          select 1 from juror_artists ja
+          join act_artists aa on aa.artist_id = ja.artist_id
+          join acts a on a.id = aa.act_id
+          where ja.juror_id = jurors.id and a.withdrawn = true
+        )
+        and not ${hasActiveAct}
+      returning id, display_name
+    `, [eventId]);
+    result.jurorsDisabled = disabled.rows.map((row) => row.display_name);
+    if (disabled.rows.length > 0) {
+      await client.query(
+        "update voter_sessions set status = 'REVOKED' where juror_id = any($1::uuid[]) and status = 'ACTIVE'",
+        [disabled.rows.map((row) => row.id)]
+      );
+    }
+    const restored = await client.query<{ display_name: string }>(`
+      update jurors set enabled = true, withdrawn_disabled = false
+      where event_id = $1 and withdrawn_disabled = true and ${hasActiveAct}
+      returning display_name
+    `, [eventId]);
+    result.jurorsRestored = restored.rows.map((row) => row.display_name);
+
+    if (result.withdrawn.length + result.restored.length > 0) {
+      await client.query("update events set updated_at = now() where id = $1", [eventId]);
+      await client.query(`
+        insert into audit_log(event_id, actor_type, action, entity_type, after_json)
+        values ($1, 'ADMIN', 'SYNC_ACT_WITHDRAWALS', 'EVENT', $2::jsonb)
+      `, [eventId, JSON.stringify(result)]);
+    }
+    await client.query("commit");
+    return result;
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function updateEventConfig(eventId: string, config: EventConfig): Promise<void> {
   await requireDatabase().query(
     "update events set config_json = $2::jsonb, updated_at = now() where id = $1",
