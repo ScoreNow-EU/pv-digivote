@@ -7,21 +7,21 @@ export interface DemoScore {
 }
 
 const countries = [
-  ["DE", "Deutschland", "🇩🇪"],
-  ["SE", "Schweden", "🇸🇪"],
-  ["FI", "Finnland", "🇫🇮"],
-  ["IT", "Italien", "🇮🇹"],
-  ["ES", "Spanien", "🇪🇸"],
-  ["FR", "Frankreich", "🇫🇷"],
-  ["NL", "Niederlande", "🇳🇱"],
-  ["NO", "Norwegen", "🇳🇴"],
-  ["AT", "Österreich", "🇦🇹"],
-  ["IE", "Irland", "🇮🇪"],
-  ["GB", "Vereinigtes Königreich", "🇬🇧"],
-  ["CH", "Schweiz", "🇨🇭"]
+  ["DE", "Deutschland", "🇩🇪", "Mara Lenz"],
+  ["SE", "Schweden", "🇸🇪", "Elin Ahlberg"],
+  ["FI", "Finnland", "🇫🇮", "Noora Virtanen"],
+  ["IT", "Italien", "🇮🇹", "Luca Bianchi"],
+  ["ES", "Spanien", "🇪🇸", "Carmen Ruiz"],
+  ["FR", "Frankreich", "🇫🇷", "Camille Dubois"],
+  ["NL", "Niederlande", "🇳🇱", "Sven de Wit"],
+  ["NO", "Norwegen", "🇳🇴", "Ingrid Haugen"],
+  ["AT", "Österreich", "🇦🇹", "Lukas Gruber"],
+  ["IE", "Irland", "🇮🇪", "Siobhan Walsh"],
+  ["GB", "Vereinigtes Königreich", "🇬🇧", "Jamie Clarke"],
+  ["CH", "Schweiz", "🇨🇭", "Nora Frei"]
 ] as const;
 
-export const demoActs: Act[] = countries.map(([isoCode, displayName, flag], index) => ({
+export const demoActs: Array<Act & { artistNames: string[] }> = countries.map(([isoCode, displayName, flag, artistName], index) => ({
   id: `act-${index + 1}`,
   startNumber: index + 1,
   country: {
@@ -33,7 +33,8 @@ export const demoActs: Act[] = countries.map(([isoCode, displayName, flag], inde
   pseudonym: `Act ${String(index + 1).padStart(2, "0")}`,
   songTitle: `Songtitel ${String(index + 1).padStart(2, "0")}`,
   artistIds: [`artist-${index + 1}`],
-  identityRevealed: index < 4
+  identityRevealed: index < 4,
+  artistNames: [artistName]
 }));
 
 const juryPoints = [82, 72, 68, 61, 57, 53, 48, 44, 38, 26, 20, 11];
