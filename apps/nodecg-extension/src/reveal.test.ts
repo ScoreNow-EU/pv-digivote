@@ -10,6 +10,7 @@ function makeAct(overrides: Partial<Act & { artistNames: string[] }>): Act & { a
     country: { id: "country-de", isoCode: "DE", displayName: "Deutschland", flag: "DE" },
     pseudonym: "Act 01",
     songTitle: "Songtitel 01",
+    realSongTitle: "Echter Songtitel 01",
     artistIds: ["artist-1"],
     identityRevealed: false,
     artistNames: ["Klarname 01"],
@@ -68,8 +69,8 @@ describe("publicBundle", () => {
       updatedAt: new Date(0).toISOString()
     },
     acts: [
-      makeAct({ id: "act-1", pseudonym: "Act 01", artistIds: ["artist-1"], identityRevealed: false, artistNames: ["Klarname 01"] }),
-      makeAct({ id: "act-2", pseudonym: "Act 02", artistIds: ["artist-2"], identityRevealed: true, artistNames: ["Klarname 02"] })
+      makeAct({ id: "act-1", pseudonym: "Act 01", songTitle: "Songtitel 01", realSongTitle: "Echter Songtitel 01", artistIds: ["artist-1"], identityRevealed: false, artistNames: ["Klarname 01"] }),
+      makeAct({ id: "act-2", pseudonym: "Act 02", songTitle: "Songtitel 02", realSongTitle: "Echter Songtitel 02", artistIds: ["artist-2"], identityRevealed: true, artistNames: ["Klarname 02"] })
     ],
     artists: [
       { id: "artist-1", realName: "Klarname 01", actIds: ["act-1"] },
@@ -86,6 +87,12 @@ describe("publicBundle", () => {
     const result = publicBundle(bundle);
     expect(result.acts.find((act) => act.id === "act-1")?.artistNames).toEqual([]);
     expect(result.acts.find((act) => act.id === "act-2")?.artistNames).toEqual(["Klarname 02"]);
+  });
+
+  it("versteckt den echten Songtitel vor dem Reveal und zeigt stattdessen den Tarn-Songtitel", () => {
+    const result = publicBundle(bundle);
+    expect(result.acts.find((act) => act.id === "act-1")?.realSongTitle).toBe("Songtitel 01");
+    expect(result.acts.find((act) => act.id === "act-2")?.realSongTitle).toBe("Echter Songtitel 02");
   });
 
   it("zeigt für einen nicht enthüllten Artist-Juror das Pseudonym des verknüpften Acts statt des Klarnamens", () => {

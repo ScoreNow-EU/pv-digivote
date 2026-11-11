@@ -73,6 +73,7 @@ const editableActSchema = z.object({
   countryName: z.string().trim().min(1).max(80),
   pseudonym: z.string().trim().min(1).max(120),
   songTitle: z.string().trim().min(1).max(160),
+  realSongTitle: z.string().trim().min(1).max(160),
   artistNames: z.array(z.string().trim().min(1).max(120)).min(1).max(8)
 });
 
@@ -526,6 +527,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       countryName: act.countryName,
       pseudonym: act.pseudonym,
       songTitle: act.songTitle,
+      realSongTitle: act.realSongTitle,
       artistNames: act.artistNames
     })));
     response.json({ ok: true });

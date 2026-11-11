@@ -13,7 +13,8 @@ export function publicBundle(bundle: EventBundle) {
     event: bundle.event,
     acts: bundle.acts.map((act) => ({
       ...act,
-      artistNames: act.identityRevealed ? act.artistNames : []
+      artistNames: act.identityRevealed ? act.artistNames : [],
+      realSongTitle: act.identityRevealed ? act.realSongTitle : act.songTitle
     })),
     jurors: bundle.jurors
       .filter((juror) => juror.enabled)

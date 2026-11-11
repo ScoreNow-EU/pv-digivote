@@ -77,6 +77,7 @@ export interface AdminActInput {
   countryName: string;
   pseudonym: string;
   songTitle: string;
+  realSongTitle: string;
   artistNames: string[];
 }
 
