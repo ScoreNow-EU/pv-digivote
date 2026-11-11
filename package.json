@@ -72,6 +72,12 @@
         "width": 1920,
         "height": 1080,
         "singleInstance": false
+      },
+      {
+        "file": "tablet.html",
+        "width": 1080,
+        "height": 1920,
+        "singleInstance": false
       }
     ],
     "mount": [

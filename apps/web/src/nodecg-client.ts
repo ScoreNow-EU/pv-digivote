@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { showPhaseSchema, showStateSchema, type EventConfig, type ShowState } from "@pv/domain";
-import { demoShowState } from "./demo-data";
+import { demoJurors, demoShowState } from "./demo-data";
 
 interface BrowserReplicant<T> {
   value?: T;
@@ -18,6 +18,9 @@ declare global {
     nodecg?: BrowserNodeCg;
   }
 }
+
+// Muss zur Wartezeit in apps/nodecg-extension/src/index.ts passen.
+const JURY_REVEAL_DELAY_MS = 3_000;
 
 export type ShowCommand =
   | { type: "set-phase"; phase: ShowState["phase"] }
@@ -115,24 +118,42 @@ export function useShowState(): [ShowState, (command: ShowCommand) => void, bool
       if (command.type === "update-event-config") return current;
       if (command.type === "start-runoff") return { ...current, phase: "STICHWAHL_OFFEN", revision: current.revision + 1 };
       if (command.type === "close-runoff") return { ...current, phase: "FINALE", revision: current.revision + 1 };
-      const sequence = [0, 8, 10, 12] as const;
+      const sequence = [-1, 0, 8, 10, 12] as const;
       const index = sequence.indexOf(current.currentRevealPoint);
       if (command.type === "rewind-jury-reveal") {
         const atStart = index <= 0;
         return {
           ...current,
           phase: "JURY_REVEAL",
-          currentRevealPoint: atStart ? 12 : sequence[index - 1]!,
+          currentRevealPoint: atStart ? sequence[sequence.length - 1]! : sequence[index - 1]!,
           currentJurorIndex: atStart ? Math.max(0, current.currentJurorIndex - 1) : current.currentJurorIndex,
+          pendingJuryReveal: null,
           revision: current.revision + 1
         };
       }
+      // advance-jury-reveal: wie im Backend erst als Vorschau ankündigen,
+      // der eigentliche Wechsel (den der Beamer zeigt) folgt verzögert.
       const atEnd = index === sequence.length - 1;
+      const nextPoint = atEnd ? sequence[0]! : sequence[index + 1]!;
+      const nextJurorIndex = atEnd ? current.currentJurorIndex + 1 : current.currentJurorIndex;
+      if (nextJurorIndex >= demoJurors.length) {
+        // Alle Jurys durchgeklickt: direkt weiter zum Publikums-Reveal.
+        return { ...current, phase: "PUBLIC_REVEAL", pendingJuryReveal: null, revision: current.revision + 1 };
+      }
+      const revealAt = new Date(Date.now() + JURY_REVEAL_DELAY_MS).toISOString();
+      window.setTimeout(() => {
+        setState((latest) => (latest.paused ? latest : {
+          ...latest,
+          phase: "JURY_REVEAL",
+          currentRevealPoint: nextPoint,
+          currentJurorIndex: nextJurorIndex,
+          pendingJuryReveal: null,
+          revision: latest.revision + 1
+        }));
+      }, JURY_REVEAL_DELAY_MS);
       return {
         ...current,
-        phase: "JURY_REVEAL",
-        currentRevealPoint: atEnd ? 0 : sequence[index + 1]!,
-        currentJurorIndex: atEnd ? current.currentJurorIndex + 1 : current.currentJurorIndex,
+        pendingJuryReveal: { currentJurorIndex: nextJurorIndex, currentRevealPoint: nextPoint, actId: null, revealAt },
         revision: current.revision + 1
       };
     });

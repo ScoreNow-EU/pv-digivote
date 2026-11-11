@@ -26,6 +26,7 @@ export const actSchema = z.object({
   country: countrySchema,
   pseudonym: z.string().min(1).max(120),
   songTitle: z.string().min(1).max(160),
+  realSongTitle: z.string().min(1).max(160),
   artistIds: z.array(entityIdSchema).min(1),
   identityRevealed: z.boolean().default(false)
 });
@@ -105,9 +106,19 @@ export const showStateSchema = z.object({
   paused: z.boolean(),
   currentActId: entityIdSchema.nullable(),
   currentJurorIndex: z.number().int().nonnegative(),
-  currentRevealPoint: z.union([z.literal(0), z.literal(8), z.literal(10), z.literal(12)]),
+  currentRevealPoint: z.union([z.literal(-1), z.literal(0), z.literal(8), z.literal(10), z.literal(12)]),
   currentPublicRevealIndex: z.number().int().nonnegative().default(0),
   revealedPublicActIds: z.array(entityIdSchema).default([]),
+  pendingJuryReveal: z.object({
+    currentJurorIndex: z.number().int().nonnegative(),
+    currentRevealPoint: z.union([z.literal(-1), z.literal(0), z.literal(8), z.literal(10), z.literal(12)]),
+    actId: entityIdSchema.nullable(),
+    revealAt: z.string().datetime()
+  }).nullable().default(null),
+  pendingPublicReveal: z.object({
+    actId: entityIdSchema,
+    revealAt: z.string().datetime()
+  }).nullable().default(null),
   voting: z.object({
     publicOpen: z.boolean(),
     juryOpen: z.boolean(),
@@ -134,9 +145,11 @@ export const defaultShowState: ShowState = {
   paused: false,
   currentActId: null,
   currentJurorIndex: 0,
-  currentRevealPoint: 0,
+  currentRevealPoint: -1,
   currentPublicRevealIndex: 0,
   revealedPublicActIds: [],
+  pendingJuryReveal: null,
+  pendingPublicReveal: null,
   voting: {
     publicOpen: false,
     juryOpen: false,

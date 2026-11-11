@@ -302,8 +302,7 @@ h3 {
 .mobile-intro > p,
 .beamer-ranking__head p,
 .beamer-reveal > p,
-.tablet-next > p,
-.tablet-now > span {
+.tablet-next > p {
   color: var(--color-accent);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -523,6 +522,15 @@ h3 {
 }
 
 .demo-vote-control > .button {
+  margin-block-start: var(--space-md);
+}
+
+.reset-control {
+  padding: var(--space-lg);
+}
+
+.reset-control > .button,
+.reset-control > .button-row {
   margin-block-start: var(--space-md);
 }
 
@@ -818,7 +826,7 @@ h3 {
 
 .score-row {
   display: grid;
-  grid-template-columns: 2.25rem 2.25rem minmax(8rem, 1fr) minmax(3.6rem, auto) minmax(3.6rem, auto) 4rem;
+  grid-template-columns: 2.25rem 2.25rem minmax(8rem, 1fr) minmax(3.2rem, auto) 4rem;
   align-items: center;
   gap: var(--space-sm);
   min-height: 44px;
@@ -839,8 +847,7 @@ h3 {
 }
 
 .score-row__rank,
-.score-row__jury,
-.score-row__public,
+.score-row__award,
 .score-row__total {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -867,25 +874,24 @@ h3 {
   white-space: nowrap;
 }
 
-.score-row__jury,
-.score-row__public {
-  display: grid;
-  grid-template-columns: 1fr;
-  color: var(--color-ink-2);
+.score-row__award {
+  color: var(--color-accent);
+  font-weight: 700;
   text-align: end;
-}
-
-.score-row__jury small,
-.score-row__public small {
-  color: var(--color-muted);
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
 }
 
 .score-row__total {
   color: var(--color-ink);
   font-size: var(--text-md);
   text-align: end;
+}
+
+.score-row--pending {
+  background: var(--color-paper-2);
+}
+
+.score-row--pending .score-row__country {
+  color: var(--color-muted);
 }
 
 @keyframes score-enter {
@@ -1198,8 +1204,7 @@ h3 {
 
 .tablet-main {
   display: grid;
-  grid-template-columns: minmax(12rem, 0.45fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: minmax(16rem, 0.9fr) minmax(0, 1fr);
   align-items: stretch;
   gap: var(--space-lg);
   padding-block: var(--space-xl);
@@ -1207,33 +1212,14 @@ h3 {
 }
 
 .tablet-scoreboard {
-  grid-column: 1 / -1;
   min-height: 0;
   overflow-y: auto;
 }
 
-.tablet-now,
 .tablet-next {
   border: var(--rule-thin) solid var(--color-rule);
   border-radius: var(--radius-lg);
-  background: var(--color-paper-2);
   color: var(--color-ink);
-}
-
-.tablet-now {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: var(--space-sm);
-  padding: var(--space-lg);
-}
-
-.tablet-now strong {
-  font-family: var(--font-display);
-  font-size: var(--text-xl);
-}
-
-.tablet-next {
   display: grid;
   grid-template-rows: auto auto 1fr;
   padding: clamp(var(--space-lg), 5vw, var(--space-2xl));
@@ -1271,6 +1257,56 @@ h3 {
   line-height: 0.8;
 }
 
+.tablet-countdown-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-toast);
+  display: grid;
+  place-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  text-align: center;
+  background: var(--color-overlay);
+  animation: tablet-countdown-in var(--dur-short) var(--ease-out) both;
+}
+
+.tablet-countdown-overlay__label {
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.tablet-countdown-overlay__number {
+  color: var(--color-accent);
+  font-family: var(--font-display);
+  font-size: min(60vh, 60vw);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  animation: tablet-countdown-pulse 1s var(--ease-out) infinite;
+}
+
+.tablet-countdown-overlay__preview {
+  max-width: 90vw;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: clamp(var(--text-xl), 6vw, var(--text-2xl));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes tablet-countdown-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes tablet-countdown-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
 .tablet-foot {
   color: var(--color-muted);
   font-size: var(--text-sm);
@@ -1282,7 +1318,8 @@ h3 {
   grid-template-rows: 1fr auto;
   width: 100%;
   min-height: 100dvh;
-  padding: clamp(var(--space-xl), 5vw, var(--space-3xl));
+  padding-inline: clamp(var(--space-xl), 5vw, var(--space-3xl));
+  padding-block: clamp(var(--space-sm), 1.5vh, var(--space-lg));
   background: var(--color-paper);
   color: var(--color-ink);
   overflow: clip;
@@ -1349,7 +1386,7 @@ h3 {
 
 .beamer-reveal > h1 {
   margin-block-start: var(--space-md);
-  font-size: clamp(var(--text-3xl), 7vw, 7rem);
+  font-size: clamp(var(--text-3xl), 8vw, 9rem);
   letter-spacing: -0.055em;
 }
 
@@ -1360,7 +1397,7 @@ h3 {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-lg);
-  min-height: 21rem;
+  min-height: 23rem;
   padding: var(--space-2xl);
   border-radius: var(--radius-lg);
   background: var(--color-paper-3);
@@ -1369,7 +1406,7 @@ h3 {
 
 .beamer-award__flag {
   display: block;
-  width: clamp(4rem, 6vw, 7rem);
+  width: clamp(4.5rem, 7vw, 8rem);
   height: auto;
   border-radius: var(--radius-sm);
   box-shadow: 0 0 0 var(--rule-thin) var(--color-rule);
@@ -1379,7 +1416,7 @@ h3 {
   min-width: 0;
   overflow: hidden;
   font-family: var(--font-display);
-  font-size: clamp(var(--text-xl), 3vw, var(--text-3xl));
+  font-size: clamp(var(--text-2xl), 5vw, 6rem);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1388,7 +1425,7 @@ h3 {
 .beamer-award strong {
   color: var(--color-accent);
   font-family: var(--font-display);
-  font-size: clamp(7rem, 12vw, 14rem);
+  font-size: clamp(8rem, 14vw, 16rem);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.08em;
   line-height: 0.8;
@@ -1397,8 +1434,45 @@ h3 {
 .beamer-award small {
   grid-column: 3;
   color: var(--color-muted);
-  font-size: var(--text-md);
+  font-size: var(--text-lg);
   text-align: end;
+}
+
+.beamer-status,
+.beamer-announce {
+  position: relative;
+  z-index: var(--z-raised);
+  align-self: center;
+  display: grid;
+  justify-content: center;
+  gap: var(--space-md);
+  text-align: center;
+}
+
+.beamer-status > p,
+.beamer-announce > p {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+}
+
+.beamer-status > h1 {
+  font-size: clamp(var(--text-2xl), 7vw, 6rem);
+  letter-spacing: -0.05em;
+}
+
+.beamer-status > span {
+  color: var(--color-ink-2);
+  font-size: var(--text-xl);
+}
+
+.beamer-announce > p {
+  font-size: var(--text-lg);
+}
+
+.beamer-announce > h1 {
+  margin-block-start: var(--space-xs);
+  font-size: clamp(var(--text-3xl), 11vw, 11rem);
+  letter-spacing: -0.06em;
 }
 
 .beamer-bulk {
@@ -1412,27 +1486,31 @@ h3 {
 .beamer-bulk > p {
   color: var(--color-muted);
   font-family: var(--font-mono);
+  font-size: var(--text-lg);
 }
 
 .beamer-bulk > h1 {
   margin-block-start: var(--space-xs);
-  font-size: clamp(var(--text-2xl), 5vw, var(--text-display));
+  font-size: clamp(var(--text-2xl), 6vw, 7rem);
   letter-spacing: -0.05em;
 }
 
 .beamer-bulk__list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: var(--space-sm);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(4, minmax(0, 1fr));
+  grid-auto-flow: column;
+  gap: var(--space-md) var(--space-2xl);
   margin-block-start: var(--space-md);
+  min-height: 0;
 }
 
 .beamer-bulk__row {
   display: grid;
-  grid-template-columns: 3rem auto minmax(0, 1fr);
+  grid-template-columns: 4.5rem auto minmax(0, 1fr);
   align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-xl);
   border: var(--rule-thin) solid var(--color-rule);
   border-radius: var(--radius-md);
   background: var(--color-paper-2);
@@ -1441,13 +1519,13 @@ h3 {
 .beamer-bulk__points {
   color: var(--color-accent);
   font-family: var(--font-display);
-  font-size: var(--text-xl);
+  font-size: clamp(var(--text-2xl), 4vw, 4.5rem);
   font-variant-numeric: tabular-nums;
 }
 
 .beamer-bulk__flag {
   display: block;
-  width: 2.25rem;
+  width: 4.5rem;
   height: auto;
   border-radius: var(--radius-sm);
   box-shadow: 0 0 0 var(--rule-thin) var(--color-rule);
@@ -1456,6 +1534,8 @@ h3 {
 .beamer-bulk__country {
   min-width: 0;
   overflow: hidden;
+  font-size: clamp(var(--text-xl), 2.6vw, 2.75rem);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1463,7 +1543,7 @@ h3 {
 .beamer-bulk__pending {
   grid-column: 2 / span 2;
   color: var(--color-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-lg);
 }
 
 .beamer-ranking {
@@ -1502,18 +1582,37 @@ h3 {
 
 .scoreboard--projector .score-list {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: column;
   gap: var(--space-sm) var(--space-lg);
 }
 
 .scoreboard--projector .score-row {
-  grid-template-columns: 3rem 3.5rem minmax(0, 1fr) 5rem 5rem 6rem;
-  min-height: clamp(3.5rem, 6.5vh, 5.25rem);
-  padding: var(--space-sm) var(--space-md);
-  font-size: clamp(var(--text-base), 1.5vw, var(--text-md));
+  grid-template-columns: 3.5rem 4.5rem minmax(0, 1fr) 6rem 7rem;
+  min-height: clamp(4rem, 8vh, 6.5rem);
+  padding: var(--space-sm) var(--space-lg);
+  font-size: clamp(var(--text-lg), 2.6vw, var(--text-2xl));
+}
+
+.scoreboard--projector .score-row__flag {
+  width: 3.25rem;
+  height: 2.15rem;
 }
 
 .scoreboard--projector .score-row__total {
-  font-size: clamp(var(--text-md), 2vw, var(--text-xl));
+  font-size: clamp(var(--text-2xl), 3.2vw, var(--text-3xl));
+}
+
+/* Kompakte Variante fürs Moderator-Tablet: nur Flagge statt Flagge + Ländername,
+   damit die Rangliste auch auf einem kleinen Bildschirm (iPad Mini) passt. */
+.scoreboard--compact.scoreboard--projector .score-row {
+  grid-template-columns: 2rem 3.5rem 1fr auto auto;
+  gap: var(--space-xs);
+  padding-inline: var(--space-sm);
+}
+
+.scoreboard--compact .score-row__flag {
+  width: 2.75rem;
+  height: 1.8rem;
 }
 
 @media (min-width: 40rem) {
@@ -1568,10 +1667,6 @@ h3 {
 
   .tablet-main {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .tablet-now {
-    min-height: 9rem;
   }
 
   .topbar--controller {
@@ -1648,8 +1743,7 @@ h3 {
     gap: var(--space-xs);
   }
 
-  .score-row__jury,
-  .score-row__public {
+  .score-row__award {
     display: none;
   }
 

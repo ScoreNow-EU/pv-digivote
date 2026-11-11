@@ -50,6 +50,12 @@ export interface JuryBulkAwardEntry {
   points: number;
 }
 
+export interface JuryRevealStep {
+  currentJurorIndex: number;
+  currentRevealPoint: -1 | 0 | 8 | 10 | 12;
+  actId: string | null;
+}
+
 export interface ScoreResponse {
   ok: true;
   rows: ScoreRow[];
@@ -61,6 +67,7 @@ export interface ScoreResponse {
   runoffActIds: string[];
   revealProgress: Record<string, number>;
   currentBulkAward: JuryBulkAwardEntry[];
+  nextJuryPreview: JuryRevealStep | null;
 }
 
 export interface AdminActInput {
@@ -70,6 +77,7 @@ export interface AdminActInput {
   countryName: string;
   pseudonym: string;
   songTitle: string;
+  realSongTitle: string;
   artistNames: string[];
 }
 
@@ -171,6 +179,10 @@ export interface DemoVoteResult {
 
 export function runDemoVote(publicCount: number): Promise<DemoVoteResult> {
   return requestJson("/admin/demo-vote", { method: "POST", body: JSON.stringify({ publicCount }) });
+}
+
+export function resetShowProgress(): Promise<{ ok: true }> {
+  return requestJson("/admin/reset-progress", { method: "POST", body: "{}" });
 }
 
 export function useLiveBackend(enabled: boolean) {

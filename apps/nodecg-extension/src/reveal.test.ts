@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Act, BallotEntry, Juror } from "@pv/domain";
 import type { EventBundle } from "@pv/database";
-import { computeJuryRevealProgress, findLinkedAct, publicBundle, revealedPointValues } from "./reveal";
+import { computeJuryRevealProgress, computeNextJuryStep, findLinkedAct, publicBundle, revealedPointValues } from "./reveal";
 
 function makeAct(overrides: Partial<Act & { artistNames: string[] }>): Act & { artistNames: string[] } {
   return {
@@ -10,6 +10,7 @@ function makeAct(overrides: Partial<Act & { artistNames: string[] }>): Act & { a
     country: { id: "country-de", isoCode: "DE", displayName: "Deutschland", flag: "DE" },
     pseudonym: "Act 01",
     songTitle: "Songtitel 01",
+    realSongTitle: "Echter Songtitel 01",
     artistIds: ["artist-1"],
     identityRevealed: false,
     artistNames: ["Klarname 01"],
@@ -68,8 +69,8 @@ describe("publicBundle", () => {
       updatedAt: new Date(0).toISOString()
     },
     acts: [
-      makeAct({ id: "act-1", pseudonym: "Act 01", artistIds: ["artist-1"], identityRevealed: false, artistNames: ["Klarname 01"] }),
-      makeAct({ id: "act-2", pseudonym: "Act 02", artistIds: ["artist-2"], identityRevealed: true, artistNames: ["Klarname 02"] })
+      makeAct({ id: "act-1", pseudonym: "Act 01", songTitle: "Songtitel 01", realSongTitle: "Echter Songtitel 01", artistIds: ["artist-1"], identityRevealed: false, artistNames: ["Klarname 01"] }),
+      makeAct({ id: "act-2", pseudonym: "Act 02", songTitle: "Songtitel 02", realSongTitle: "Echter Songtitel 02", artistIds: ["artist-2"], identityRevealed: true, artistNames: ["Klarname 02"] })
     ],
     artists: [
       { id: "artist-1", realName: "Klarname 01", actIds: ["act-1"] },
@@ -86,6 +87,12 @@ describe("publicBundle", () => {
     const result = publicBundle(bundle);
     expect(result.acts.find((act) => act.id === "act-1")?.artistNames).toEqual([]);
     expect(result.acts.find((act) => act.id === "act-2")?.artistNames).toEqual(["Klarname 02"]);
+  });
+
+  it("versteckt den echten Songtitel vor dem Reveal und zeigt stattdessen den Tarn-Songtitel", () => {
+    const result = publicBundle(bundle);
+    expect(result.acts.find((act) => act.id === "act-1")?.realSongTitle).toBe("Songtitel 01");
+    expect(result.acts.find((act) => act.id === "act-2")?.realSongTitle).toBe("Echter Songtitel 02");
   });
 
   it("zeigt für einen nicht enthüllten Artist-Juror das Pseudonym des verknüpften Acts statt des Klarnamens", () => {
@@ -135,5 +142,33 @@ describe("computeJuryRevealProgress", () => {
   it("zählt nach dem letzten Juror die volle Summe", () => {
     const progress = computeJuryRevealProgress(actIds, orderedJurors, ballotsByJuror, 2, 0);
     expect(progress).toEqual({ "act-1": 13, "act-2": 13 });
+  });
+});
+
+describe("computeNextJuryStep", () => {
+  const orderedJurors = [{ id: "juror-1" }, { id: "juror-2" }];
+  const ballotsByJuror = new Map<string, BallotEntry[]>([
+    ["juror-1", [{ actId: "act-1", points: 12 }, { actId: "act-2", points: 8 }]],
+    ["juror-2", [{ actId: "act-2", points: 12 }, { actId: "act-1", points: 8 }]]
+  ]);
+
+  it("kündigt für die Sammelpunkte keinen einzelnen Act an", () => {
+    const next = computeNextJuryStep(orderedJurors, ballotsByJuror, 0, -1);
+    expect(next).toEqual({ currentJurorIndex: 0, currentRevealPoint: 0, actId: null });
+  });
+
+  it("löst für einen Punktwert den passenden Act aus dem Stimmzettel des Jurors auf", () => {
+    const next = computeNextJuryStep(orderedJurors, ballotsByJuror, 0, 0);
+    expect(next).toEqual({ currentJurorIndex: 0, currentRevealPoint: 8, actId: "act-2" });
+  });
+
+  it("wechselt nach dem letzten Punktwert zur Ankündigung des nächsten Jurors", () => {
+    const next = computeNextJuryStep(orderedJurors, ballotsByJuror, 0, 12);
+    expect(next).toEqual({ currentJurorIndex: 1, currentRevealPoint: -1, actId: null });
+  });
+
+  it("wickelt nach dem letzten Juror wieder zum ersten", () => {
+    const next = computeNextJuryStep(orderedJurors, ballotsByJuror, 1, 12);
+    expect(next).toEqual({ currentJurorIndex: 2, currentRevealPoint: -1, actId: null });
   });
 });

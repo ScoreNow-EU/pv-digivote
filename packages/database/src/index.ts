@@ -107,6 +107,7 @@ export async function getActiveEventBundle(): Promise<EventBundle | undefined> {
       flag_asset_path: string | null;
       pseudonym: string;
       song_title: string;
+      real_song_title: string;
       identity_revealed: boolean;
       artist_ids: string[];
       artist_names: string[];
@@ -120,6 +121,7 @@ export async function getActiveEventBundle(): Promise<EventBundle | undefined> {
         c.flag_asset_path,
         a.pseudonym,
         a.song_title,
+        a.real_song_title,
         a.identity_revealed,
         coalesce(array_agg(ar.id order by aa.sort_order) filter (where ar.id is not null), '{}') as artist_ids,
         coalesce(array_agg(ar.real_name order by aa.sort_order) filter (where ar.id is not null), '{}') as artist_names
@@ -193,6 +195,7 @@ export async function getActiveEventBundle(): Promise<EventBundle | undefined> {
       },
       pseudonym: row.pseudonym,
       songTitle: row.song_title,
+      realSongTitle: row.real_song_title,
       artistIds: row.artist_ids,
       artistNames: row.artist_names,
       identityRevealed: row.identity_revealed
@@ -491,6 +494,30 @@ export async function getJuryBallotsByJuror(eventId: string): Promise<Map<string
   return new Map(result.rows.map((row) => [row.juror_id, row.entries]));
 }
 
+export async function resetEventProgress(eventId: string): Promise<void> {
+  const database = requireDatabase();
+  const client = await database.connect();
+  try {
+    await client.query("begin");
+    await client.query(`
+      delete from ballots
+      where round_id in (select id from ballot_rounds where event_id = $1 and type in ('JURY', 'PUBLIC'))
+    `, [eventId]);
+    await client.query(`
+      update ballot_rounds set status = 'DRAFT', opened_at = null, closed_at = null
+      where event_id = $1 and type in ('JURY', 'PUBLIC')
+    `, [eventId]);
+    await client.query("delete from ballot_rounds where event_id = $1 and type = 'RUNOFF'", [eventId]);
+    await client.query("update acts set identity_revealed = false where event_id = $1", [eventId]);
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function setRoundOpen(eventId: string, group: "JURY" | "PUBLIC", open: boolean): Promise<void> {
   await requireDatabase().query(`
     update ballot_rounds
@@ -521,6 +548,7 @@ export interface EditableActInput {
   countryName: string;
   pseudonym: string;
   songTitle: string;
+  realSongTitle: string;
   artistNames: string[];
 }
 
@@ -553,13 +581,13 @@ export async function replaceEventActs(eventId: string, inputs: readonly Editabl
         : { rows: [] };
       const act = existing.rows[0]
         ? await client.query<{ id: string }>(`
-            update acts set country_id = $2, start_number = $3, pseudonym = $4, song_title = $5, active = true
+            update acts set country_id = $2, start_number = $3, pseudonym = $4, song_title = $5, real_song_title = $6, active = true
             where id = $1 returning id
-          `, [input.id, country.rows[0]!.id, input.startNumber, input.pseudonym, input.songTitle])
+          `, [input.id, country.rows[0]!.id, input.startNumber, input.pseudonym, input.songTitle, input.realSongTitle])
         : await client.query<{ id: string }>(`
-            insert into acts(event_id, country_id, start_number, pseudonym, song_title)
-            values ($1, $2, $3, $4, $5) returning id
-          `, [eventId, country.rows[0]!.id, input.startNumber, input.pseudonym, input.songTitle]);
+            insert into acts(event_id, country_id, start_number, pseudonym, song_title, real_song_title)
+            values ($1, $2, $3, $4, $5, $6) returning id
+          `, [eventId, country.rows[0]!.id, input.startNumber, input.pseudonym, input.songTitle, input.realSongTitle]);
       const actId = act.rows[0]!.id;
       retainedIds.push(actId);
       const currentArtists = await client.query<{ id: string }>(`
