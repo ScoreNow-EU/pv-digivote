@@ -76,6 +76,11 @@ const actWithdrawalsSchema = z.object({
   })).max(64)
 });
 
+const controlSchema = z.object({
+  name: z.string().regex(/^pv:[a-z-]+$/),
+  payload: z.unknown().optional()
+});
+
 const juryLoginSchema = z.object({
   jurorId: z.string().min(1).max(128),
   pin: z.string().regex(/^\d{4}$/)
@@ -213,20 +218,26 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     });
   };
 
-  nodecg.listenFor("pv:set-phase", (payload: unknown) => {
+  // Regie-Befehle: dieselben Funktionen für das NodeCG-Dashboard und für ShowTC (Bridge-Ereignis "control").
+  const controlHandlers = new Map<string, (payload: unknown) => void>();
+  const onControl = (name: string, handler: (payload: unknown) => void): void => {
+    controlHandlers.set(name, handler);
+    nodecg.listenFor(name, handler);
+  };
+  onControl("pv:set-phase", (payload: unknown) => {
     const phase = showPhaseSchema.parse(payload);
     clearPendingReveal();
     update({ phase, pendingJuryReveal: null, pendingPublicReveal: null });
   });
 
-  nodecg.listenFor("pv:toggle-pause", () => {
+  onControl("pv:toggle-pause", () => {
     const current = readState();
     const pausing = !current.paused;
     if (pausing) clearPendingReveal();
     update({ paused: pausing, ...(pausing ? { pendingJuryReveal: null, pendingPublicReveal: null } : {}) });
   });
 
-  nodecg.listenFor("pv:update-event-config", (payload: unknown) => {
+  onControl("pv:update-event-config", (payload: unknown) => {
     const parsed = eventConfigSchema.safeParse(payload);
     if (!parsed.success) {
       nodecg.log.warn("Ungültige Event-Konfiguration verworfen.");
@@ -238,7 +249,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       .catch((error: unknown) => nodecg.log.error(`Event-Konfiguration konnte nicht gespeichert werden: ${String(error)}`));
   });
 
-  nodecg.listenFor("pv:toggle-public-voting", () => {
+  onControl("pv:toggle-public-voting", () => {
     const current = readState();
     const publicOpen = !current.voting.publicOpen;
     update({
@@ -250,7 +261,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       .catch((error: unknown) => nodecg.log.error(`Votingstatus konnte nicht gespeichert werden: ${String(error)}`));
   });
 
-  nodecg.listenFor("pv:toggle-jury-voting", () => {
+  onControl("pv:toggle-jury-voting", () => {
     const current = readState();
     const juryOpen = !current.voting.juryOpen;
     update({ voting: { ...current.voting, juryOpen } });
@@ -259,7 +270,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       .catch((error: unknown) => nodecg.log.error(`Jury-Votingstatus konnte nicht gespeichert werden: ${String(error)}`));
   });
 
-  nodecg.listenFor("pv:reveal-next-act", () => {
+  onControl("pv:reveal-next-act", () => {
     void getActiveEventBundle().then(async (bundle) => {
       if (!bundle || bundle.acts.length === 0) return;
       const current = readState();
@@ -279,7 +290,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     }).catch((error: unknown) => nodecg.log.error(`Manueller Klarname-Reveal fehlgeschlagen: ${String(error)}`));
   });
 
-  nodecg.listenFor("pv:advance-jury-reveal", () => {
+  onControl("pv:advance-jury-reveal", () => {
     clearPendingReveal();
     const current = readState();
     void getActiveEventBundle().then(async (bundle) => {
@@ -333,7 +344,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     }).catch((error: unknown) => nodecg.log.error(`Jury-Reveal fehlgeschlagen: ${String(error)}`));
   });
 
-  nodecg.listenFor("pv:rewind-jury-reveal", () => {
+  onControl("pv:rewind-jury-reveal", () => {
     clearPendingReveal();
     const current = readState();
     const currentIndex = JURY_REVEAL_SEQUENCE.indexOf(current.currentRevealPoint);
@@ -346,7 +357,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     });
   });
 
-  nodecg.listenFor("pv:advance-public-reveal", () => {
+  onControl("pv:advance-public-reveal", () => {
     clearPendingReveal();
     void getActiveEventBundle().then(async (bundle) => {
       if (!bundle) return;
@@ -396,7 +407,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     }).catch((error: unknown) => nodecg.log.error(`Publikums-Reveal fehlgeschlagen: ${String(error)}`));
   });
 
-  nodecg.listenFor("pv:reset-public-reveal", () => {
+  onControl("pv:reset-public-reveal", () => {
     clearPendingReveal();
     const current = readState();
     update({
@@ -408,7 +419,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     });
   });
 
-  nodecg.listenFor("pv:start-runoff", () => {
+  onControl("pv:start-runoff", () => {
     void getActiveEventBundle().then(async (bundle) => {
       if (!bundle) return;
       const config = eventConfigSchema.parse(bundle.event.config);
@@ -428,7 +439,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     }).catch((error: unknown) => nodecg.log.error(`Stichwahl konnte nicht gestartet werden: ${String(error)}`));
   });
 
-  nodecg.listenFor("pv:close-runoff", () => {
+  onControl("pv:close-runoff", () => {
     void getActiveEventBundle().then(async (bundle) => {
       if (!bundle) return;
       await closeRunoffRound(bundle.event.id);
@@ -438,6 +449,16 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       emitBridgeCue({ eventType: tied ? "RUNOFF_TIED" : "RUNOFF_WINNER", actId: results[0]?.actId ?? null, votes: results[0]?.votes ?? 0 });
     }).catch((error: unknown) => nodecg.log.error(`Stichwahl konnte nicht geschlossen werden: ${String(error)}`));
   });
+
+  // Eindeutige Befehle für Automatiken (ShowTC): setzen statt umschalten, ein zweiter Aufruf ändert nichts.
+  const setter = (name: string, toggle: string, current: () => boolean): void => {
+    onControl(name, (payload) => {
+      if (current() !== z.boolean().parse(payload)) controlHandlers.get(toggle)?.(undefined);
+    });
+  };
+  setter("pv:set-public-voting", "pv:toggle-public-voting", () => readState().voting.publicOpen);
+  setter("pv:set-jury-voting", "pv:toggle-jury-voting", () => readState().voting.juryOpen);
+  setter("pv:set-pause", "pv:toggle-pause", () => readState().paused);
 
   const api = nodecg.Router();
   api.use(express.json({ limit: "32kb" }));
@@ -882,6 +903,24 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     emitBridgeCue = (cue) => {
       emitUntyped("cue", cue);
     };
+    // Live-Zustand für ShowTC: Showzustand plus Acts und Jurys zum Anzeigen. Kurz gesammelt, damit
+    // mehrere Änderungen in einem Zug nur eine Abfrage kosten.
+    const bridgeSnapshot = async (): Promise<Record<string, unknown>> => {
+      const bundle = await getActiveEventBundle().catch(() => undefined);
+      return {
+        state: readState(),
+        acts: (bundle?.acts ?? []).map((act) => ({ id: act.id, startNumber: act.startNumber, countryIsoCode: act.country.isoCode, country: act.country.displayName })),
+        jurors: (bundle?.jurors ?? []).filter((juror) => juror.enabled).map((juror) => ({ id: juror.id, name: juror.displayName }))
+      };
+    };
+    let statePushTimer: ReturnType<typeof setTimeout> | undefined;
+    showState.on("change", () => {
+      if (statePushTimer) return;
+      statePushTimer = setTimeout(() => {
+        statePushTimer = undefined;
+        void bridgeSnapshot().then((snapshot) => emitUntyped("state", snapshot));
+      }, 30);
+    });
     bridge.use((socket, next) => {
       if (socket.handshake.auth.token !== bridgeToken) {
         next(new Error("Bridge-Token ungültig"));
@@ -937,6 +976,25 @@ function extension(nodecg: NodeCG.ServerAPI): void {
 
       // Eigenes Ereignis außerhalb der NodeCG-Typen (wie emitUntyped oben).
       const onUntyped = socket.on.bind(socket) as unknown as (eventName: string, listener: (payload: unknown, ack?: (result: unknown) => void) => void) => void;
+      const emitToSocket = socket.emit.bind(socket) as unknown as (eventName: string, payload: unknown) => boolean;
+      void bridgeSnapshot().then((snapshot) => emitToSocket("state", snapshot));
+
+      // Regie-Befehl von ShowTC, z. B. { name: "pv:advance-jury-reveal" } oder { name: "pv:set-public-voting", payload: true }.
+      onUntyped("control", (payload, ack) => {
+        const parsed = controlSchema.safeParse(payload);
+        const handler = parsed.success ? controlHandlers.get(parsed.data.name) : undefined;
+        if (!parsed.success || !handler) {
+          ack?.({ ok: false, error: `Unbekannter Befehl ${parsed.success ? parsed.data.name : ""}`.trim() });
+          return;
+        }
+        try {
+          handler(parsed.data.payload);
+          nodecg.log.info(`Regie-Befehl von ShowTC: ${parsed.data.name}`);
+          ack?.({ ok: true, name: parsed.data.name });
+        } catch (error: unknown) {
+          ack?.({ ok: false, name: parsed.data.name, error: error instanceof Error ? error.message : String(error) });
+        }
+      });
       onUntyped("act:reveal", (payload, ack) => {
         const parsed = actRevealSchema.safeParse(payload);
         if (!parsed.success) {

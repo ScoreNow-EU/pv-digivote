@@ -137,6 +137,8 @@ ShowTC (Timecode-Player der Show) meldet sich mit `BRIDGE_TOKEN` am Namespace `/
 
 Rückzieher meldet ShowTC mit `acts:withdrawals` (`countries: [{ countryIsoCode?, countryName, withdrawn }]`), sofort und bei jeder Verbindung. Betroffene Acts werden inaktiv und merken sich `withdrawn`. Jury-Zugänge vom Typ ARTIST ohne weiteren aktiven Act werden gesperrt, ihre Sitzungen beendet und bei der Rücknahme wieder freigegeben; manuell gesperrte Zugänge bleiben gesperrt. Länder, die ShowTC nicht meldet, bleiben unberührt. Rückzieher zählen bei der Untergrenze von 12 Acts mit.
 
+Steuern: ShowTC schickt Regie-Befehle als `control` (`{ name, payload? }`, z. B. `pv:advance-jury-reveal`), dieselben Funktionen wie das Dashboard. Für Automatiken gibt es zusätzlich eindeutige Befehle: `pv:set-public-voting`, `pv:set-jury-voting`, `pv:set-pause` mit `true`/`false`. Antwort per Ack `{ ok, name }` bzw. `{ ok: false, error }`. Den Live-Zustand sendet DigiVote als `state` (`{ state, acts, jurors }`) bei der Verbindung und bei jeder Änderung. Die Reveal-Ereignisse (`cue`) kommen weiterhin erst, wenn der Beamer die Punkte zeigt.
+
 ## Docker
 
 ```powershell
