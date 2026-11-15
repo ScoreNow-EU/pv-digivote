@@ -26,6 +26,7 @@ export const actSchema = z.object({
   country: countrySchema,
   pseudonym: z.string().min(1).max(120),
   songTitle: z.string().min(1).max(160),
+  realSongTitle: z.string().min(1).max(160),
   artistIds: z.array(entityIdSchema).min(1),
   identityRevealed: z.boolean().default(false)
 });

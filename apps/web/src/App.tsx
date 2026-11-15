@@ -399,7 +399,7 @@ function ControllerSurface({
               <div>
                 <p className="panel__label">Auftritt · Klarname</p>
                 <h2 id="act-control-title">{String(currentAct.startNumber).padStart(2, "0")} · {currentAct.country.displayName}</h2>
-                <p>{currentAct.pseudonym} · {currentAct.identityRevealed ? (currentAct.artistNames?.join(", ") || "enthüllt") : "noch verborgen"}</p>
+                <p>{currentAct.identityRevealed ? currentAct.realSongTitle : currentAct.songTitle} · {currentAct.pseudonym} · {currentAct.identityRevealed ? (currentAct.artistNames?.join(", ") || "enthüllt") : "noch verborgen"}</p>
               </div>
               <button
                 className="button button--quiet"
@@ -702,6 +702,7 @@ function toEditableActs(config: AdminConfigResponse): EditableActRow[] {
     countryName: act.country.displayName,
     pseudonym: act.pseudonym,
     songTitle: act.songTitle,
+    realSongTitle: act.realSongTitle,
     artistNamesText: act.artistNames.join(", ")
   }));
 }
@@ -726,6 +727,7 @@ function ParticipantsAdmin({ config, onSaved }: { config: AdminConfigResponse; o
       countryName: "",
       pseudonym: "",
       songTitle: "",
+      realSongTitle: "",
       artistNamesText: ""
     }]);
   };
@@ -742,6 +744,7 @@ function ParticipantsAdmin({ config, onSaved }: { config: AdminConfigResponse; o
         countryName: row.countryName.trim(),
         pseudonym: row.pseudonym.trim(),
         songTitle: row.songTitle.trim(),
+        realSongTitle: row.realSongTitle.trim(),
         artistNames: row.artistNamesText.split(",").map((name) => name.trim()).filter(Boolean)
       }));
       await saveAdminActs(payload);
@@ -786,7 +789,10 @@ function ParticipantsAdmin({ config, onSaved }: { config: AdminConfigResponse; o
               <input required value={row.countryName} onChange={(event) => update(index, "countryName", event.target.value)} placeholder="Deutschland" />
             </label>
             <label className="editor-field">Songtitel
-              <input required value={row.songTitle} onChange={(event) => update(index, "songTitle", event.target.value)} placeholder="Titel des Songs" />
+              <input required value={row.songTitle} onChange={(event) => update(index, "songTitle", event.target.value)} placeholder="Titel vor dem Reveal" />
+            </label>
+            <label className="editor-field">Songtitel-Klar
+              <input required value={row.realSongTitle} onChange={(event) => update(index, "realSongTitle", event.target.value)} placeholder="Echter Titel des Songs" />
             </label>
             <label className="editor-field">Pseudonym
               <input required value={row.pseudonym} onChange={(event) => update(index, "pseudonym", event.target.value)} placeholder="Name vor dem Reveal" />
@@ -1470,7 +1476,7 @@ function BallotForm({
               />
               <span className="act-choice__identity">
                 <strong>{act.pseudonym}</strong>
-                <small>{act.songTitle} · {act.identityRevealed ? (act.artistNames?.join(", ") || "Klarname freigegeben") : "Klarname verborgen"}</small>
+                <small>{act.identityRevealed ? act.realSongTitle : act.songTitle} · {act.identityRevealed ? (act.artistNames?.join(", ") || "Klarname freigegeben") : "Klarname verborgen"}</small>
               </span>
               {blocked ? (
                 <span className="act-choice__locked">Eigener Act</span>

@@ -32,6 +32,7 @@ export const demoActs: Act[] = countries.map(([isoCode, displayName, flag], inde
   },
   pseudonym: `Act ${String(index + 1).padStart(2, "0")}`,
   songTitle: `Songtitel ${String(index + 1).padStart(2, "0")}`,
+  realSongTitle: `Songtitel ${String(index + 1).padStart(2, "0")}`,
   artistIds: [`artist-${index + 1}`],
   identityRevealed: index < 4
 }));
