@@ -1,0 +1,24 @@
+# Produktions-Overlay für den Contabo-Server, zusammen mit docker-compose.yml:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+# Werte kommen aus /opt/pv-digivote/.env (POSTGRES_PASSWORD, SESSION_SECRET, BRIDGE_TOKEN).
+name: pv-digivote
+
+services:
+  app:
+    environment:
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET fehlt in .env}
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:?BRIDGE_TOKEN fehlt in .env}
+      DATABASE_URL: postgres://pastvision:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD fehlt in .env}@postgres:5432/pastvision
+      # nginx setzt X-Real-IP; nötig für die PIN-Sperre pro Gerät.
+      TRUST_PROXY: "1"
+    # Nur nginx auf dem Host erreicht NodeCG, nie direkt aus dem Internet.
+    ports: !override
+      - "127.0.0.1:9090:9090"
+
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD fehlt in .env}
+    ports: !reset []
+
+  redis:
+    ports: !reset []

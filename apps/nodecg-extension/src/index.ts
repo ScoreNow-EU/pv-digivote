@@ -131,6 +131,8 @@ const jurorsAdminSchema = z.object({
 });
 
 const PUBLIC_COOKIE = "pv_public_session";
+const BRIDGE_NAMESPACE = "/pv-digivote-bridge";
+const BRIDGE_SOCKET_PATH = "/pv-digivote-bridge/socket.io";
 const JURY_COOKIE = "pv_jury_session";
 const COOKIE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 
@@ -621,7 +623,10 @@ function extension(nodecg: NodeCG.ServerAPI): void {
   }));
 
   api.post("/sessions/jury", route(async (request, response) => {
-    const clientKey = request.ip || request.socket.remoteAddress || "unknown";
+    // Hinter dem Reverse Proxy kommen alle Anfragen vom Proxy. Dann zählt die echte Client-IP aus
+    // X-Real-IP, die nginx selbst setzt; nur mit TRUST_PROXY=1, sonst könnte ein Client sie fälschen.
+    const forwardedIp = process.env.TRUST_PROXY === "1" ? request.get("x-real-ip")?.trim() : undefined;
+    const clientKey = forwardedIp || request.ip || request.socket.remoteAddress || "unknown";
     const now = Date.now();
     const attempts = loginAttempts.get(clientKey);
     if (attempts && attempts.resetAt > now && attempts.count >= 5) {
@@ -898,8 +903,27 @@ function extension(nodecg: NodeCG.ServerAPI): void {
   if (!bridgeToken) {
     nodecg.log.error("BRIDGE_TOKEN fehlt. Die Show-Bridge bleibt in Produktion deaktiviert.");
   } else {
-    const bridge = nodecg.getSocketIOServer().server.of("/pv-digivote-bridge");
-    const emitUntyped = bridge.emit.bind(bridge) as unknown as (eventName: string, payload: unknown) => boolean;
+    // Die Bridge ist zweimal erreichbar: über den NodeCG-Socket (/socket.io, lokal ohne Proxy) und über
+    // einen eigenen Pfad /pv-digivote-bridge/socket.io. Der eigene Pfad trägt nur diesen Namespace, daher
+    // kann der Reverse Proxy ihn ohne Passwort durchlassen, während /socket.io (Regie) geschützt bleibt.
+    const ioServer = nodecg.getSocketIOServer().server;
+    const bridges = [ioServer.of(BRIDGE_NAMESPACE)];
+    if (ioServer.httpServer) {
+      const SocketServer = ioServer.constructor as new (httpServer: typeof ioServer.httpServer, options: Record<string, unknown>) => typeof ioServer;
+      const dedicatedServer = new SocketServer(ioServer.httpServer, {
+        path: BRIDGE_SOCKET_PATH,
+        serveClient: false,
+        destroyUpgrade: false
+      });
+      bridges.push(dedicatedServer.of(BRIDGE_NAMESPACE));
+    } else {
+      nodecg.log.warn(`Kein HTTP-Server gefunden, die Show-Bridge ist nur über /socket.io erreichbar.`);
+    }
+    const emitUntyped = (eventName: string, payload: unknown) => {
+      for (const bridge of bridges) {
+        (bridge.emit.bind(bridge) as unknown as (name: string, data: unknown) => boolean)(eventName, payload);
+      }
+    };
     emitBridgeCue = (cue) => {
       emitUntyped("cue", cue);
     };
@@ -921,14 +945,15 @@ function extension(nodecg: NodeCG.ServerAPI): void {
         void bridgeSnapshot().then((snapshot) => emitUntyped("state", snapshot));
       }, 30);
     });
-    bridge.use((socket, next) => {
+    type BridgeSocket = Parameters<Parameters<(typeof bridges)[number]["use"]>[0]>[0];
+    const authorizeBridge = (socket: BridgeSocket, next: (error?: Error) => void) => {
       if (socket.handshake.auth.token !== bridgeToken) {
         next(new Error("Bridge-Token ungültig"));
         return;
       }
       next();
-    });
-    bridge.on("connection", (socket) => {
+    };
+    const onBridgeConnection = (socket: BridgeSocket) => {
       update({ bridgeStatus: process.env.NODE_ENV === "production" ? "VERBUNDEN" : "SIMULATION" });
       nodecg.log.info(`Show-Bridge verbunden: ${socket.id}`);
 
@@ -1072,7 +1097,11 @@ function extension(nodecg: NodeCG.ServerAPI): void {
         });
         nodecg.log.warn("Show-Bridge getrennt.");
       });
-    });
+    };
+    for (const bridge of bridges) {
+      bridge.use(authorizeBridge);
+      bridge.on("connection", onBridgeConnection);
+    }
   }
 
   pingDatabase()
