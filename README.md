@@ -147,4 +147,18 @@ docker compose up --build
 
 Vor einem öffentlich erreichbaren Deployment müssen mindestens `POSTGRES_PASSWORD`, `SESSION_SECRET` und `BRIDGE_TOKEN` auf zufällige produktive Werte gesetzt, die Seed-PINs ersetzt und TLS sowie Zugriffsschutz für das NodeCG-Dashboard über einen Reverse Proxy aktiviert werden.
 
+## Produktion (Contabo)
+
+Zwei Domains vor demselben NodeCG, nginx auf dem Host als Reverse Proxy:
+
+- **vote.scorenow.eu** (öffentlich): Publikum unter `/`, Jury unter `/jury`. Nur die Vote-/Jury-Seiten und die Routen `bootstrap`, `sessions/public`, `sessions/jury`, `ballots`, `ballots/me` sind erreichbar; Admin-API, Regie und NodeCG-Socket liefern 404.
+- **pv26.scorenow.eu** (Passwort, Benutzer `regie`): Regie unter `/`, außerdem Beamer A/B und Tablet unter `/bundles/pv-digivote/graphics/…`.
+- **ShowTC** verbindet sich mit `https://pv26.scorenow.eu/pv-digivote-bridge` und dem `BRIDGE_TOKEN`. Dieser Pfad ist ein eigener Socket nur für den Bridge-Namespace und braucht kein Passwort.
+
+Dateien: [deploy/docker-compose.prod.yml](deploy/docker-compose.prod.yml), [deploy/nginx/](deploy/nginx/). Auf dem Server liegt alles unter `/opt/pv-digivote`, die Geheimnisse in `/opt/pv-digivote/.env`.
+
+```bash
+docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+```
+
 Das vollständige fachliche und technische Konzept steht in [docs/TECHNISCHES_PFLICHTENHEFT.md](docs/TECHNISCHES_PFLICHTENHEFT.md).
