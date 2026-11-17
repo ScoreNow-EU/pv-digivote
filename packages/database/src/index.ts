@@ -764,9 +764,20 @@ export async function replaceEventJurors(eventId: string, inputs: readonly Edita
     const retainedIds: string[] = [];
     for (const input of inputs) {
       const existing = input.id
-        ? await client.query<{ id: string }>("select id from jurors where id = $1 and event_id = $2", [input.id, eventId])
+        ? await client.query<{ id: string; pin: string | null; pin_hash: string }>(
+            "select id, pin, pin_hash from jurors where id = $1 and event_id = $2",
+            [input.id, eventId]
+          )
         : { rows: [] };
-      if (!existing.rows[0] && !input.pin && !input.pinHash) throw new Error(`Für ${input.displayName} fehlt ein PIN.`);
+      const previous = existing.rows[0];
+      if (!previous && !input.pin && !input.pinHash) throw new Error(`Für ${input.displayName} fehlt ein PIN.`);
+      // Nur ein wirklich geänderter PIN wird neu gehasht und beendet Sitzungen; die Regie schickt
+      // den angezeigten PIN bei jedem Speichern mit.
+      const pinChanged = input.pin
+        ? input.pin !== previous?.pin
+        : Boolean(input.pinHash && input.pinHash !== previous?.pin_hash);
+      const newPin = pinChanged && input.pin ? input.pin : null;
+      const newPinHash = pinChanged && !input.pin ? input.pinHash ?? null : null;
       const juror = existing.rows[0]
         ? await client.query<{ id: string }>(`
             update jurors set display_name = $2, type = $3, enabled = $4, reveal_order = $5,
@@ -774,16 +785,21 @@ export async function replaceEventJurors(eventId: string, inputs: readonly Edita
                 when $6::text is not null then crypt($6, gen_salt('bf', 10))
                 when $7::text is not null then $7
                 else pin_hash
+              end,
+              pin = case
+                when $6::text is not null then $6
+                when $7::text is not null then null
+                else pin
               end
             where id = $1 returning id
-          `, [input.id, input.displayName, input.type, input.enabled, input.revealOrder, input.pin ?? null, input.pinHash ?? null])
+          `, [input.id, input.displayName, input.type, input.enabled, input.revealOrder, newPin, newPinHash])
         : await client.query<{ id: string }>(`
-            insert into jurors(event_id, display_name, type, pin_hash, enabled, reveal_order)
-            values ($1, $2, $3, case when $4::text is not null then crypt($4, gen_salt('bf', 10)) else $7 end, $5, $6) returning id
+            insert into jurors(event_id, display_name, type, pin_hash, pin, enabled, reveal_order)
+            values ($1, $2, $3, case when $4::text is not null then crypt($4, gen_salt('bf', 10)) else $7 end, $4, $5, $6) returning id
           `, [eventId, input.displayName, input.type, input.pin ?? null, input.enabled, input.revealOrder, input.pinHash ?? null]);
       const jurorId = juror.rows[0]!.id;
       retainedIds.push(jurorId);
-      if (input.pin || input.pinHash) {
+      if (previous && pinChanged) {
         await client.query("update voter_sessions set status = 'REVOKED' where juror_id = $1 and status = 'ACTIVE'", [jurorId]);
       }
       await client.query("delete from juror_artists where juror_id = $1", [jurorId]);
@@ -815,13 +831,13 @@ export async function replaceEventJurors(eventId: string, inputs: readonly Edita
   }
 }
 
-// PIN-Hashes (bcrypt) aller Jurys eines Events, nur für den Datenexport der Regie.
-export async function getJurorPinHashes(eventId: string): Promise<Map<string, string>> {
-  const result = await requireDatabase().query<{ id: string; pin_hash: string }>(
-    "select id, pin_hash from jurors where event_id = $1",
+// PINs aller Jurys eines Events (Klartext, falls bekannt, und bcrypt-Hash), nur für die Regie.
+export async function getJurorPins(eventId: string): Promise<Map<string, { pin: string | null; pinHash: string }>> {
+  const result = await requireDatabase().query<{ id: string; pin: string | null; pin_hash: string }>(
+    "select id, pin, pin_hash from jurors where event_id = $1",
     [eventId]
   );
-  return new Map(result.rows.map((row) => [row.id, row.pin_hash]));
+  return new Map(result.rows.map((row) => [row.id, { pin: row.pin, pinHash: row.pin_hash }]));
 }
 
 export async function getLatestRunoff(eventId: string): Promise<RunoffRecord | undefined> {

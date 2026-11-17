@@ -19,7 +19,7 @@ import {
   getCountingBallots,
   getCurrentBallot,
   getJuryBallotsByJuror,
-  getJurorPinHashes,
+  getJurorPins,
   getOrCreateJurySession,
   getOrCreatePublicSession,
   getLatestRunoff,
@@ -577,6 +577,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       response.status(503).json({ ok: false, error: "NO_EVENT" });
       return;
     }
+    const pins = await getJurorPins(bundle.event.id);
     response.json({
       ok: true,
       event: bundle.event,
@@ -587,7 +588,8 @@ function extension(nodecg: NodeCG.ServerAPI): void {
         type: juror.type,
         enabled: juror.enabled,
         revealOrder: juror.revealOrder,
-        linkedActId: juror.linkedActIds[0] ?? ""
+        linkedActId: juror.linkedActIds[0] ?? "",
+        pin: pins.get(juror.id)?.pin ?? ""
       }))
     });
   }));
@@ -922,7 +924,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     response.json({ ok: true });
   }));
 
-  // Datenexport für Tests: Einstellungen, Acts (inkl. Klarnamen) und Jurys mit PIN-Hash.
+  // Datenexport für Tests: Einstellungen, Acts (inkl. Klarnamen) und Jurys mit PIN (Klartext, falls bekannt) und PIN-Hash.
   // Stimmzettel sind nicht enthalten. Act-Zuordnung der Jurys über die Startnummer.
   api.get("/admin/export", route(async (_request, response) => {
     const bundle = await getActiveEventBundle();
@@ -930,7 +932,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       response.status(503).json({ ok: false, error: "NO_EVENT" });
       return;
     }
-    const pinHashes = await getJurorPinHashes(bundle.event.id);
+    const pins = await getJurorPins(bundle.event.id);
     const startNumberByActId = new Map(bundle.acts.map((act) => [act.id, act.startNumber]));
     const payload: DataExport = {
       format: EXPORT_FORMAT,
@@ -953,7 +955,8 @@ function extension(nodecg: NodeCG.ServerAPI): void {
         enabled: juror.enabled,
         revealOrder: juror.revealOrder,
         linkedStartNumber: juror.linkedActIds[0] ? startNumberByActId.get(juror.linkedActIds[0]) ?? null : null,
-        pinHash: pinHashes.get(juror.id) ?? null
+        ...(pins.get(juror.id)?.pin ? { pin: pins.get(juror.id)!.pin! } : {}),
+        pinHash: pins.get(juror.id)?.pinHash ?? null
       }))
     };
     const stamp = payload.exportedAt.slice(0, 16).replace(/[:T]/g, "-");

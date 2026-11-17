@@ -102,6 +102,8 @@ export interface AdminConfigResponse {
     enabled: boolean;
     revealOrder: number;
     linkedActId: string;
+    // Leer, wenn der PIN nur als Hash bekannt ist (vor der Klartext-Speicherung gesetzt).
+    pin: string;
   }>;
 }
 

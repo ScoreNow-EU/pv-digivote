@@ -678,7 +678,7 @@ function ControllerSurface({
                   </div>
                 </div>
                 <p className="panel__copy">
-                  Der Export enthält Einstellungen, Acts mit Klarnamen und Jurys mit ihren PINs (verschlüsselt), aber keine Stimmen.
+                  Der Export enthält Einstellungen, Acts mit Klarnamen und Jurys mit ihren PINs, aber keine Stimmen. Die Datei enthält die PINs im Klartext, also vertraulich behandeln.
                   Ein Import ersetzt Acts, Jurys und Einstellungen und setzt die Show vollständig zurück.
                 </p>
                 <div className="button-row">
@@ -938,7 +938,7 @@ function ParticipantsAdmin({ config, onSaved }: { config: AdminConfigResponse; o
 type EditableJurorRow = Omit<AdminJurorInput, "pin" | "linkedActId"> & { pin: string; linkedActId: string };
 
 function toEditableJurors(config: AdminConfigResponse): EditableJurorRow[] {
-  return config.jurors.map((juror) => ({ ...juror, pin: "", linkedActId: juror.linkedActId }));
+  return config.jurors.map((juror) => ({ ...juror, pin: juror.pin ?? "", linkedActId: juror.linkedActId }));
 }
 
 function JuryAdmin({ config, onSaved }: { config: AdminConfigResponse; onSaved: () => Promise<void> }) {
@@ -978,7 +978,7 @@ function JuryAdmin({ config, onSaved }: { config: AdminConfigResponse; onSaved: 
       }));
       await saveAdminJurors(payload);
       await onSaved();
-      setMessage("Jurydaten gespeichert. Neu gesetzte PINs sind jetzt aktiv.");
+      setMessage("Jurydaten gespeichert. Geänderte PINs sind jetzt aktiv.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Die Jurydaten konnten nicht gespeichert werden.");
     } finally {
@@ -991,7 +991,7 @@ function JuryAdmin({ config, onSaved }: { config: AdminConfigResponse; onSaved: 
       <div className="editor-toolbar">
         <div>
           <strong>{rows.filter((row) => row.enabled).length} aktive Jurys</strong>
-          <span>PINs werden nie angezeigt. Leer lassen behält den bisherigen PIN.</span>
+          <span>PINs sind hier im Klartext sichtbar. „unbekannt“: PIN nur verschlüsselt gespeichert, leer lassen behält ihn.</span>
         </div>
         <button className="button button--quiet" type="button" onClick={add}>Jury hinzufügen</button>
       </div>
@@ -1018,17 +1018,18 @@ function JuryAdmin({ config, onSaved }: { config: AdminConfigResponse; onSaved: 
             <label className="editor-field editor-field--short">Reihenfolge
               <input type="number" min="1" max="999" required value={row.revealOrder} onChange={(event) => update(index, "revealOrder", Number(event.target.value))} />
             </label>
-            <label className="editor-field editor-field--short">Neuer PIN
+            <label className="editor-field editor-field--short">PIN
               <input
-                type="password"
+                type="text"
                 inputMode="numeric"
                 pattern="[0-9]{4}"
                 maxLength={4}
                 required={!row.id}
                 value={row.pin}
                 onChange={(event) => update(index, "pin", event.target.value.replace(/\D/g, ""))}
-                placeholder={row.id ? "••••" : "4 Ziffern"}
-                autoComplete="new-password"
+                placeholder={row.id ? "unbekannt" : "4 Ziffern"}
+                autoComplete="off"
+                spellCheck={false}
               />
             </label>
             <label className="enabled-toggle">
@@ -1042,7 +1043,7 @@ function JuryAdmin({ config, onSaved }: { config: AdminConfigResponse; onSaved: 
         ))}
       </div>
       <div className="editor-savebar">
-        <p className="form-message" role="status">{message || "Ein neuer PIN beendet bestehende Sitzungen dieses Jurykontos."}</p>
+        <p className="form-message" role="status">{message || "Ein geänderter PIN beendet bestehende Sitzungen dieses Jurykontos."}</p>
         <button className="button button--accent" type="submit" disabled={saving}>{saving ? "Speichert …" : "Jury speichern"}</button>
       </div>
     </form>
