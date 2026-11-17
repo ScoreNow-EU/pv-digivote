@@ -27,8 +27,14 @@ export function publicBundle(bundle: EventBundle) {
 }
 
 // Reveal-Stufen pro Juror: -1 kündigt nur den Namen an (noch keine Punkte),
-// 0 enthüllt die gesammelten Punkte 1-7, danach folgen 8, 10 und 12 einzeln.
-export const JURY_REVEAL_SEQUENCE = [-1, 0, 8, 10, 12] as const;
+// 0 zeigt alle Punkte außer der Höchstwertung auf einmal (1–8 und 10),
+// danach wird nur die 12 einzeln vorgelesen.
+export const JURY_REVEAL_SEQUENCE: readonly ShowState["currentRevealPoint"][] = [-1, 0, 12];
+export const JURY_TOP_POINTS = 12;
+
+export function isBulkJuryPoints(points: number): boolean {
+  return points >= 1 && points < JURY_TOP_POINTS;
+}
 
 export const PHASES_BEFORE_JURY_REVEAL: readonly ShowPhase[] = [
   "SETUP",
@@ -43,10 +49,8 @@ export const PHASES_BEFORE_JURY_REVEAL: readonly ShowPhase[] = [
 export function revealedPointValues(currentRevealPoint: ShowState["currentRevealPoint"]): ReadonlySet<number> {
   const stageIndex = JURY_REVEAL_SEQUENCE.indexOf(currentRevealPoint);
   const values = new Set<number>();
-  if (stageIndex >= 1) for (let point = 1; point <= 7; point += 1) values.add(point);
-  if (stageIndex >= 2) values.add(8);
-  if (stageIndex >= 3) values.add(10);
-  if (stageIndex >= 4) values.add(12);
+  if (stageIndex >= 1) for (let point = 1; point < JURY_TOP_POINTS; point += 1) values.add(point);
+  if (stageIndex >= 2) values.add(JURY_TOP_POINTS);
   return values;
 }
 

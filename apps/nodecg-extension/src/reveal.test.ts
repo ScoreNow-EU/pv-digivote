@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Act, BallotEntry, Juror } from "@pv/domain";
 import type { EventBundle } from "@pv/database";
-import { computeJuryRevealProgress, computeNextJuryStep, findLinkedAct, publicBundle, revealedPointValues } from "./reveal";
+import { computeJuryRevealProgress, computeNextJuryStep, findLinkedAct, isBulkJuryPoints, JURY_REVEAL_SEQUENCE, publicBundle, revealedPointValues } from "./reveal";
 
 function makeAct(overrides: Partial<Act & { artistNames: string[] }>): Act & { artistNames: string[] } {
   return {
@@ -63,7 +63,7 @@ describe("publicBundle", () => {
         requireCompleteBallot: true,
         selfVotePolicy: "BLOCK_LINKED_ACTS",
         weights: { jury: 0.5, public: 0.5 },
-        juryReveal: { bulkPoints: [1, 2, 3, 4, 5, 6, 7], individualPoints: [8, 10, 12] },
+        juryReveal: { bulkPoints: [1, 2, 3, 4, 5, 6, 7, 8, 10], individualPoints: [12] },
         timecode: { frameRate: 25, manualFallback: true }
       },
       updatedAt: new Date(0).toISOString()
@@ -112,12 +112,13 @@ describe("publicBundle", () => {
 });
 
 describe("revealedPointValues", () => {
-  it("enthält bei 0 nur die Sammelpunkte 1-7", () => {
-    expect([...revealedPointValues(0)].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  it("enthält bei 0 alle Punkte außer der 12 (1-8 und 10)", () => {
+    expect([...revealedPointValues(0)].filter((point) => [1, 2, 3, 4, 5, 6, 7, 8, 10, 12].includes(point)).sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 10]);
+    expect(revealedPointValues(0).has(12)).toBe(false);
   });
 
   it("kommt bei 12 kumulativ auf alle Punktwerte", () => {
-    expect([...revealedPointValues(12)].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 10, 12]);
+    expect([1, 2, 3, 4, 5, 6, 7, 8, 10, 12].every((point) => revealedPointValues(12).has(point))).toBe(true);
   });
 });
 
@@ -135,13 +136,23 @@ describe("computeJuryRevealProgress", () => {
   });
 
   it("zählt frühere Jurys vollständig, den laufenden Juror nur bis zum aktuellen Punktwert", () => {
-    const progress = computeJuryRevealProgress(actIds, orderedJurors, ballotsByJuror, 1, 8);
+    const progress = computeJuryRevealProgress(actIds, orderedJurors, ballotsByJuror, 1, 0);
     expect(progress).toEqual({ "act-1": 13, "act-2": 1 });
   });
 
   it("zählt nach dem letzten Juror die volle Summe", () => {
     const progress = computeJuryRevealProgress(actIds, orderedJurors, ballotsByJuror, 2, 0);
     expect(progress).toEqual({ "act-1": 13, "act-2": 13 });
+  });
+});
+
+describe("JURY_REVEAL_SEQUENCE", () => {
+  it("hat drei Stufen: Name, Sammelpunkte, 12", () => {
+    expect([...JURY_REVEAL_SEQUENCE]).toEqual([-1, 0, 12]);
+  });
+
+  it("zählt 8 und 10 zu den Sammelpunkten", () => {
+    expect([1, 8, 10, 12].map(isBulkJuryPoints)).toEqual([true, true, true, false]);
   });
 });
 
@@ -157,9 +168,9 @@ describe("computeNextJuryStep", () => {
     expect(next).toEqual({ currentJurorIndex: 0, currentRevealPoint: 0, actId: null });
   });
 
-  it("löst für einen Punktwert den passenden Act aus dem Stimmzettel des Jurors auf", () => {
+  it("löst nach den Sammelpunkten direkt die 12 aus dem Stimmzettel des Jurors auf", () => {
     const next = computeNextJuryStep(orderedJurors, ballotsByJuror, 0, 0);
-    expect(next).toEqual({ currentJurorIndex: 0, currentRevealPoint: 8, actId: "act-2" });
+    expect(next).toEqual({ currentJurorIndex: 0, currentRevealPoint: 12, actId: "act-1" });
   });
 
   it("wechselt nach dem letzten Punktwert zur Ankündigung des nächsten Jurors", () => {

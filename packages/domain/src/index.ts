@@ -179,8 +179,8 @@ export const eventConfigSchema = z.object({
     public: z.number().positive()
   }).default({ jury: 0.5, public: 0.5 }),
   juryReveal: z.object({
-    bulkPoints: z.array(z.number().int().positive()).default([1, 2, 3, 4, 5, 6, 7]),
-    individualPoints: z.array(z.number().int().positive()).default([8, 10, 12])
+    bulkPoints: z.array(z.number().int().positive()).default([1, 2, 3, 4, 5, 6, 7, 8, 10]),
+    individualPoints: z.array(z.number().int().positive()).default([12])
   }),
   timecode: z.object({
     frameRate: z.number().positive().default(25),

@@ -10,6 +10,8 @@ import {
   fetchMyBallot,
   loginJury,
   resetShowProgress,
+  downloadDataExport,
+  importData,
   runDemoVote,
   saveAdminActs,
   saveAdminJurors,
@@ -44,6 +46,9 @@ const phaseLabels: Record<ShowPhase, string> = {
 // Phasen ohne inhaltliches Reveal: Beamer zeigt hier einen ruhigen Status-Screen
 // statt einer Rangliste oder Jury-Reveal-Optik, damit z.B. während des offenen
 // Votings keine Punkte sichtbar werden.
+// Gesammelt enthüllte Jurypunkte; nur die 12 wird danach einzeln vorgelesen.
+const JURY_BULK_POINTS = [1, 2, 3, 4, 5, 6, 7, 8, 10] as const;
+
 const IDLE_BEAMER_PHASES: readonly ShowPhase[] = [
   "SETUP",
   "BEREIT",
@@ -170,6 +175,16 @@ export function App({ surface }: AppProps) {
       currentBulkAward={currentBulkAward}
     />
   );
+  if (surface === "beamer") return (
+    <BeamerCombinedSurface
+      state={showState}
+      acts={acts}
+      jurors={jurors}
+      scores={scores}
+      revealedJuryPoints={revealedJuryPoints}
+      currentBulkAward={currentBulkAward}
+    />
+  );
   if (surface === "beamer-b") return (
     <BeamerBSurface
       state={showState}
@@ -250,6 +265,9 @@ function ControllerSurface({
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetState, setResetState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [resetMessage, setResetMessage] = useState("");
+  const [dataState, setDataState] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [dataMessage, setDataMessage] = useState("");
+  const [pendingImport, setPendingImport] = useState<{ name: string; data: unknown; acts: number; jurors: number } | null>(null);
 
   const refreshAdminConfig = async () => {
     setAdminLoading(true);
@@ -309,6 +327,53 @@ function ControllerSurface({
     } catch (error) {
       setResetState("error");
       setResetMessage(error instanceof Error ? error.message : "Zurücksetzen fehlgeschlagen.");
+    }
+  };
+
+  const triggerExport = async () => {
+    setDataState("loading");
+    setDataMessage("");
+    try {
+      const filename = await downloadDataExport();
+      setDataState("done");
+      setDataMessage(`Exportiert: ${filename}`);
+    } catch (error) {
+      setDataState("error");
+      setDataMessage(error instanceof Error ? error.message : "Export fehlgeschlagen.");
+    }
+  };
+
+  const chooseImportFile = async (file: File | undefined) => {
+    setDataMessage("");
+    setPendingImport(null);
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text()) as { format?: unknown; acts?: unknown[]; jurors?: unknown[] };
+      if (data.format !== "pv-digivote-export") throw new Error("Das ist keine DigiVote-Exportdatei.");
+      setDataState("idle");
+      setPendingImport({ name: file.name, data, acts: data.acts?.length ?? 0, jurors: data.jurors?.length ?? 0 });
+    } catch (error) {
+      setDataState("error");
+      setDataMessage(error instanceof SyntaxError ? "Die Datei ist kein gültiges JSON." : error instanceof Error ? error.message : "Datei konnte nicht gelesen werden.");
+    }
+  };
+
+  const triggerImport = async () => {
+    if (!pendingImport) return;
+    setDataState("loading");
+    setDataMessage("");
+    try {
+      const result = await importData(pendingImport.data);
+      setDataState("done");
+      setDataMessage(`Importiert: ${result.acts} Acts, ${result.jurors} Jurys. Die Show wurde zurückgesetzt.`);
+      setPendingImport(null);
+      setDemoVoteState("idle");
+      setDemoVoteMessage("");
+      setResetMessage("");
+      await refreshAdminConfig();
+    } catch (error) {
+      setDataState("error");
+      setDataMessage(error instanceof Error ? error.message : "Import fehlgeschlagen.");
     }
   };
 
@@ -432,17 +497,17 @@ function ControllerSurface({
                       <h2 id="next-step-title">{currentJuror.displayName}</h2>
                     </div>
                     <span className="point-medallion">
-                      {state.currentRevealPoint === -1 ? "?" : state.currentRevealPoint === 0 ? "1–7" : state.currentRevealPoint}
+                      {state.currentRevealPoint === -1 ? "?" : state.currentRevealPoint === 0 ? "1–10" : state.currentRevealPoint}
                     </span>
                   </div>
                   <p className="panel__copy">
                     {state.pendingJuryReveal
-                      ? "Wird in Kürze auf Beamer A übernommen …"
+                      ? "Wird in Kürze auf den Beamer übernommen …"
                       : state.currentRevealPoint === -1
                         ? "Der Name wird angekündigt. Die Punkte folgen erst beim nächsten Klick."
                         : state.currentRevealPoint === 0
-                          ? "Die kleinen Punkte werden gesammelt auf Beamer A enthüllt."
-                          : `${state.currentRevealPoint} Punkte werden einzeln auf Beamer A enthüllt.`}
+                          ? "Alle Punkte außer der 12 erscheinen gesammelt auf dem Beamer."
+                          : `Die ${state.currentRevealPoint} Punkte werden vorgelesen.`}
                   </p>
                   <div className="button-row">
                     <button
@@ -451,7 +516,7 @@ function ControllerSurface({
                       disabled={state.paused || Boolean(state.pendingJuryReveal)}
                       onClick={() => send({ type: "advance-jury-reveal" })}
                     >
-                      {state.currentRevealPoint === -1 ? "Punkte 1–7 zeigen" : "Nächsten Punkt zeigen"}
+                      {state.currentRevealPoint === -1 ? "Punkte 1–10 zeigen" : "Nächsten Punkt zeigen"}
                     </button>
                     <button
                       className="button button--quiet"
@@ -601,6 +666,56 @@ function ControllerSurface({
                 {demoVoteMessage && (
                   <p className={demoVoteState === "error" ? "form-message form-message--error" : "form-message form-message--success"} role="status">
                     {demoVoteMessage}
+                  </p>
+                )}
+              </section>
+
+              <section className="panel data-transfer" aria-labelledby="data-transfer-title">
+                <div className="panel__head panel__head--compact">
+                  <div>
+                    <p className="panel__label">Testbetrieb</p>
+                    <h2 id="data-transfer-title">Daten exportieren und importieren</h2>
+                  </div>
+                </div>
+                <p className="panel__copy">
+                  Der Export enthält Einstellungen, Acts mit Klarnamen und Jurys mit ihren PINs (verschlüsselt), aber keine Stimmen.
+                  Ein Import ersetzt Acts, Jurys und Einstellungen und setzt die Show vollständig zurück.
+                </p>
+                <div className="button-row">
+                  <button className="button button--quiet button--wide" type="button" disabled={dataState === "loading"} onClick={() => void triggerExport()}>
+                    Exportieren
+                  </button>
+                  <label className="button button--quiet button--wide data-transfer__file">
+                    Datei importieren …
+                    <input
+                      type="file"
+                      accept="application/json,.json"
+                      disabled={dataState === "loading"}
+                      onChange={(event) => {
+                        void chooseImportFile(event.target.files?.[0]);
+                        event.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+                {pendingImport && (
+                  <div className="data-transfer__confirm">
+                    <p className="form-message">
+                      {pendingImport.name}: {pendingImport.acts} Acts, {pendingImport.jurors} Jurys. Alle Stimmen und Reveals gehen verloren.
+                    </p>
+                    <div className="button-row">
+                      <button className="button button--danger button--wide" type="button" disabled={dataState === "loading"} onClick={() => void triggerImport()}>
+                        {dataState === "loading" ? "Wird importiert …" : "Ja, importieren"}
+                      </button>
+                      <button className="button button--quiet button--wide" type="button" disabled={dataState === "loading"} onClick={() => setPendingImport(null)}>
+                        Abbrechen
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {dataMessage && (
+                  <p className={dataState === "error" ? "form-message form-message--error" : "form-message form-message--success"} role="status">
+                    {dataMessage}
                   </p>
                 )}
               </section>
@@ -941,7 +1056,7 @@ function ConfigurationPanel({ config, onSave }: { config: EventConfig | undefine
     requireCompleteBallot: true,
     selfVotePolicy: "BLOCK_LINKED_ACTS",
     weights: { jury: 0.5, public: 0.5 },
-    juryReveal: { bulkPoints: [1, 2, 3, 4, 5, 6, 7], individualPoints: [8, 10, 12] },
+    juryReveal: { bulkPoints: [...JURY_BULK_POINTS], individualPoints: [12] },
     timecode: { frameRate: 25, manualFallback: true }
   };
   const active = config ?? fallback;
@@ -1600,7 +1715,7 @@ function TabletSurface({
               </h1>
               <div className="tablet-points">
                 <span>{preview.currentRevealPoint === -1 ? "Name" : "Punkte"}</span>
-                <strong>{preview.currentRevealPoint === -1 ? "★" : preview.currentRevealPoint === 0 ? "1–7" : preview.currentRevealPoint}</strong>
+                <strong>{preview.currentRevealPoint === -1 ? "★" : preview.currentRevealPoint === 0 ? "1–10" : preview.currentRevealPoint}</strong>
               </div>
             </>
           ) : juryRevealMode ? (
@@ -1611,7 +1726,7 @@ function TabletSurface({
               </h1>
               <div className="tablet-points">
                 <span>{state.currentRevealPoint === -1 ? "Name" : "Punkte"}</span>
-                <strong>{state.currentRevealPoint === -1 ? "★" : state.currentRevealPoint === 0 ? "1–7" : state.currentRevealPoint}</strong>
+                <strong>{state.currentRevealPoint === -1 ? "★" : state.currentRevealPoint === 0 ? "1–10" : state.currentRevealPoint}</strong>
               </div>
             </>
           ) : publicMode ? (
@@ -1712,7 +1827,7 @@ function BeamerASurface({
           <p>Die Punkte von</p>
           <h1>{juror.displayName}</h1>
           <ol className="beamer-bulk__list">
-            {[1, 2, 3, 4, 5, 6, 7].map((points) => {
+            {JURY_BULK_POINTS.map((points) => {
               const award = currentBulkAward.find((entry) => entry.points === points);
               const bulkAct = award ? acts.find((entry) => entry.id === award.actId) : undefined;
               return (
@@ -1753,6 +1868,103 @@ function BeamerASurface({
           <strong>{state.currentRevealPoint}</strong>
           <small>Punkte</small>
         </div>
+      </main>
+    </BeamerFrame>
+  );
+}
+
+// Ein Beamer für alles: Bei der Jury-Wertung links die Rangliste, rechts die Karte des aktuellen
+// Jurors (Ankündigung, Sammelpunkte 1–10, dann die 12). Sonst Ruhebild bzw. Rangliste wie Beamer B.
+function BeamerCombinedSurface({
+  state,
+  acts,
+  jurors,
+  scores,
+  revealedJuryPoints,
+  currentBulkAward = []
+}: {
+  state: ShowState;
+  acts: DisplayAct[];
+  jurors: Array<{ id: string; displayName: string }>;
+  scores: DisplayScore[];
+  revealedJuryPoints?: Record<string, number> | undefined;
+  currentBulkAward?: JuryBulkAwardEntry[] | undefined;
+}) {
+  if (state.phase !== "JURY_REVEAL") {
+    return (
+      <BeamerBSurface
+        state={state}
+        acts={acts}
+        scores={scores}
+        revealedJuryPoints={revealedJuryPoints}
+        currentBulkAward={currentBulkAward}
+      />
+    );
+  }
+  const juryList = jurors.length > 0 ? jurors : demoJurors;
+  const juror = juryList[state.currentJurorIndex % juryList.length]!;
+  const awardAct = acts.find((entry) => entry.id === state.currentActId);
+  const jurorPosition = `Jury ${Math.min(state.currentJurorIndex + 1, juryList.length)} von ${juryList.length}`;
+  return (
+    <BeamerFrame>
+      <main className="beamer-combined">
+        <section className="beamer-combined__ranking" aria-label="Rangliste">
+          <Scoreboard
+            phase={state.phase}
+            acts={acts}
+            scores={scores}
+            projector
+            revealedPublicActIds={state.revealedPublicActIds}
+            juryPointsByAct={revealedJuryPoints}
+            justAwarded={computeJustAwarded(state, currentBulkAward, scores)}
+          />
+        </section>
+        <aside className="beamer-combined__jury" aria-live="polite">
+          <p className="beamer-combined__label">{jurorPosition}</p>
+          <h1 className="beamer-combined__juror">{juror.displayName}</h1>
+          {state.currentRevealPoint === -1 ? (
+            <p className="beamer-combined__hint">Die Jury hört jetzt von {juror.displayName}.</p>
+          ) : state.currentRevealPoint === 0 ? (
+            <ol className="beamer-combined__bulk">
+              {JURY_BULK_POINTS.map((points) => {
+                const award = currentBulkAward.find((entry) => entry.points === points);
+                const bulkAct = award ? acts.find((entry) => entry.id === award.actId) : undefined;
+                return (
+                  <li key={points} className="beamer-combined__row">
+                    <strong className="beamer-combined__points">{points}</strong>
+                    {bulkAct ? (
+                      <>
+                        <CountryFlag
+                          className="beamer-combined__flag"
+                          code={bulkAct.country.isoCode}
+                          label={bulkAct.country.displayName}
+                          fallback={bulkAct.country.flag}
+                        />
+                        <span className="beamer-combined__country">{bulkAct.country.displayName}</span>
+                      </>
+                    ) : <span className="beamer-combined__pending">—</span>}
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <div className="beamer-combined__award">
+              {awardAct ? (
+                <>
+                  <CountryFlag
+                    className="beamer-combined__award-flag"
+                    code={awardAct.country.isoCode}
+                    label={awardAct.country.displayName}
+                    fallback={awardAct.country.flag}
+                  />
+                  <span className="beamer-combined__award-country">{awardAct.country.displayName}</span>
+                </>
+              ) : <span className="beamer-combined__award-country">—</span>}
+              <strong>{state.currentRevealPoint}</strong>
+              <small>Punkte</small>
+            </div>
+          )}
+        </aside>
       </main>
     </BeamerFrame>
   );

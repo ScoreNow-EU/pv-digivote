@@ -43,6 +43,7 @@ Danach stehen die Testoberflächen unter folgenden URLs bereit:
 - Publikum: `http://127.0.0.1:5173/vote.html`
 - Jury: `http://127.0.0.1:5173/jury.html`
 - Moderator: `http://127.0.0.1:5173/tablet.html`
+- Beamer (kombiniert, ein Projektor): `http://127.0.0.1:5173/beamer.html`
 - Beamer A: `http://127.0.0.1:5173/beamer-a.html`
 - Beamer B: `http://127.0.0.1:5173/beamer-b.html`
 
@@ -69,6 +70,7 @@ Weitere NodeCG-URLs:
 - Regie: `http://localhost:9090/dashboard/#fullbleed/controller`
 - Jury: `http://localhost:9090/bundles/pv-digivote/app/jury.html`
 - Moderator: `http://localhost:9090/bundles/pv-digivote/graphics/tablet.html`
+- Beamer (kombiniert, ein Projektor): `http://localhost:9090/bundles/pv-digivote/graphics/beamer.html` – bei der Jury-Wertung links Rangliste, rechts die Jury-Karte; sonst wie Beamer B
 - Beamer A: `http://localhost:9090/bundles/pv-digivote/graphics/beamer-a.html`
 - Beamer B: `http://localhost:9090/bundles/pv-digivote/graphics/beamer-b.html`
 
@@ -131,6 +133,12 @@ $env:BRIDGE_TOKEN="dev-bridge-token"
 pnpm bridge:simulate
 ```
 
+## Jury-Wertung und Testdaten
+
+Pro Jury drei Schritte: Name ankündigen, dann alle Punkte außer der 12 auf einmal (1–8 und 10), dann wird die 12 vorgelesen.
+
+Unter **Einstellungen → Daten exportieren und importieren** lässt sich ein Stand als JSON sichern und wieder einspielen (z. B. zwischen lokal und Server). Enthalten sind Einstellungen, Acts mit Klarnamen und Jurys mit PIN-Hash, keine Stimmen. Ein Import setzt die Show vollständig zurück. In handgeschriebenen Testdateien darf eine Jury statt `pinHash` auch `"pin": "1234"` haben.
+
 ## ShowTC als Show-Bridge
 
 ShowTC (Timecode-Player der Show) meldet sich mit `BRIDGE_TOKEN` am Namespace `/pv-digivote-bridge` an und gibt Klarnamen gezielt frei: Ereignis `act:reveal` mit `countryIsoCode` (sonst `startNumber` oder `countryName`) und optional `timecode`. DigiVote gibt den Act frei, setzt die Phase AUFTRITT, sendet `ACT_IDENTITY_REVEAL` (`source: SHOWTC`) an die Bridge und bestätigt per Ack `{ ok, actId, country }` bzw. `{ ok: false, error }`. Timecode-Cues aus der Datenbank werden dafür nicht gebraucht.
@@ -152,7 +160,7 @@ Vor einem öffentlich erreichbaren Deployment müssen mindestens `POSTGRES_PASSW
 Zwei Domains vor demselben NodeCG, nginx auf dem Host als Reverse Proxy:
 
 - **vote.scorenow.eu** (öffentlich): Publikum unter `/`, Jury unter `/jury`. Nur die Vote-/Jury-Seiten und die Routen `bootstrap`, `sessions/public`, `sessions/jury`, `ballots`, `ballots/me` sind erreichbar; Admin-API, Regie und NodeCG-Socket liefern 404.
-- **pv26.scorenow.eu** (Passwort, Benutzer `regie`): Regie unter `/`, außerdem Beamer A/B und Tablet unter `/bundles/pv-digivote/graphics/…`.
+- **pv26.scorenow.eu** (Passwort, Benutzer `regie`): Regie unter `/`, außerdem Beamer (`beamer.html`, kombiniert), Beamer A/B und Tablet unter `/bundles/pv-digivote/graphics/…`.
 - **ShowTC** verbindet sich mit `https://pv26.scorenow.eu/pv-digivote-bridge` und dem `BRIDGE_TOKEN`. Dieser Pfad ist ein eigener Socket nur für den Bridge-Namespace und braucht kein Passwort.
 
 Dateien: [deploy/docker-compose.prod.yml](deploy/docker-compose.prod.yml), [deploy/nginx/](deploy/nginx/). Auf dem Server liegt alles unter `/opt/pv-digivote`, die Geheimnisse in `/opt/pv-digivote/.env`.

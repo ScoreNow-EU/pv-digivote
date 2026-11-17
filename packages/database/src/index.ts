@@ -671,6 +671,8 @@ export interface EditableJurorInput {
   displayName: string;
   type: Juror["type"];
   pin?: string;
+  // Fertiger bcrypt-Hash aus einem Export; wird nur genutzt, wenn kein Klartext-PIN gesetzt ist.
+  pinHash?: string;
   enabled: boolean;
   revealOrder: number;
   linkedActId?: string;
@@ -764,20 +766,24 @@ export async function replaceEventJurors(eventId: string, inputs: readonly Edita
       const existing = input.id
         ? await client.query<{ id: string }>("select id from jurors where id = $1 and event_id = $2", [input.id, eventId])
         : { rows: [] };
-      if (!existing.rows[0] && !input.pin) throw new Error(`Für ${input.displayName} fehlt ein PIN.`);
+      if (!existing.rows[0] && !input.pin && !input.pinHash) throw new Error(`Für ${input.displayName} fehlt ein PIN.`);
       const juror = existing.rows[0]
         ? await client.query<{ id: string }>(`
             update jurors set display_name = $2, type = $3, enabled = $4, reveal_order = $5,
-              pin_hash = case when $6::text is null then pin_hash else crypt($6, gen_salt('bf', 10)) end
+              pin_hash = case
+                when $6::text is not null then crypt($6, gen_salt('bf', 10))
+                when $7::text is not null then $7
+                else pin_hash
+              end
             where id = $1 returning id
-          `, [input.id, input.displayName, input.type, input.enabled, input.revealOrder, input.pin ?? null])
+          `, [input.id, input.displayName, input.type, input.enabled, input.revealOrder, input.pin ?? null, input.pinHash ?? null])
         : await client.query<{ id: string }>(`
             insert into jurors(event_id, display_name, type, pin_hash, enabled, reveal_order)
-            values ($1, $2, $3, crypt($4, gen_salt('bf', 10)), $5, $6) returning id
-          `, [eventId, input.displayName, input.type, input.pin, input.enabled, input.revealOrder]);
+            values ($1, $2, $3, case when $4::text is not null then crypt($4, gen_salt('bf', 10)) else $7 end, $5, $6) returning id
+          `, [eventId, input.displayName, input.type, input.pin ?? null, input.enabled, input.revealOrder, input.pinHash ?? null]);
       const jurorId = juror.rows[0]!.id;
       retainedIds.push(jurorId);
-      if (input.pin) {
+      if (input.pin || input.pinHash) {
         await client.query("update voter_sessions set status = 'REVOKED' where juror_id = $1 and status = 'ACTIVE'", [jurorId]);
       }
       await client.query("delete from juror_artists where juror_id = $1", [jurorId]);
@@ -807,6 +813,15 @@ export async function replaceEventJurors(eventId: string, inputs: readonly Edita
   } finally {
     client.release();
   }
+}
+
+// PIN-Hashes (bcrypt) aller Jurys eines Events, nur für den Datenexport der Regie.
+export async function getJurorPinHashes(eventId: string): Promise<Map<string, string>> {
+  const result = await requireDatabase().query<{ id: string; pin_hash: string }>(
+    "select id, pin_hash from jurors where event_id = $1",
+    [eventId]
+  );
+  return new Map(result.rows.map((row) => [row.id, row.pin_hash]));
 }
 
 export async function getLatestRunoff(eventId: string): Promise<RunoffRecord | undefined> {

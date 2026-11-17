@@ -19,6 +19,7 @@ import {
   getCountingBallots,
   getCurrentBallot,
   getJuryBallotsByJuror,
+  getJurorPinHashes,
   getOrCreateJurySession,
   getOrCreatePublicSession,
   getLatestRunoff,
@@ -45,7 +46,7 @@ import {
 } from "@pv/database";
 import { computeScoreboard } from "@pv/scoring";
 import { z } from "zod";
-import { computeJuryRevealProgress, computeNextJuryStep, JURY_REVEAL_SEQUENCE, PHASES_BEFORE_JURY_REVEAL, publicBundle } from "./reveal";
+import { computeJuryRevealProgress, computeNextJuryStep, isBulkJuryPoints, JURY_REVEAL_SEQUENCE, PHASES_BEFORE_JURY_REVEAL, publicBundle } from "./reveal";
 
 // Wartezeit zwischen dem Klick der Regie und dem tatsächlichen Umspringen auf
 // Beamer A, damit das Moderator-Tablet den Schritt vorher mit Countdown
@@ -129,6 +130,42 @@ const editableJurorSchema = z.object({
 const jurorsAdminSchema = z.object({
   jurors: z.array(editableJurorSchema).min(1).max(80)
 });
+
+const EXPORT_FORMAT = "pv-digivote-export";
+
+const importJurorSchema = z.object({
+  displayName: z.string().trim().min(1).max(120),
+  type: z.enum(["ARTIST", "REGIE", "GAST"]),
+  enabled: z.boolean(),
+  revealOrder: z.number().int().min(0).max(999),
+  linkedStartNumber: z.number().int().min(1).max(99).nullable().optional(),
+  // bcrypt-Hash aus dem Export oder ein neuer vierstelliger PIN (für handgeschriebene Testdateien).
+  pinHash: z.string().regex(/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/).nullable().optional(),
+  pin: z.string().regex(/^\d{4}$/).optional()
+}).refine((juror) => Boolean(juror.pin || juror.pinHash), { message: "Jede Jury braucht pin oder pinHash." });
+
+const dataImportSchema = z.object({
+  format: z.literal(EXPORT_FORMAT),
+  version: z.literal(1),
+  config: eventConfigSchema,
+  acts: z.array(editableActSchema.omit({ id: true })).min(1).max(15),
+  jurors: z.array(importJurorSchema).min(1).max(80)
+}).superRefine((data, context) => {
+  const result = actsAdminSchema.safeParse({ acts: data.acts });
+  if (!result.success) {
+    for (const issue of result.error.issues) context.addIssue({ code: "custom", message: issue.message, path: ["acts"] });
+  }
+});
+
+interface DataExport {
+  format: typeof EXPORT_FORMAT;
+  version: 1;
+  exportedAt: string;
+  eventName: string;
+  config: unknown;
+  acts: Array<Omit<z.infer<typeof editableActSchema>, "id">>;
+  jurors: Array<z.infer<typeof importJurorSchema>>;
+}
 
 const PUBLIC_COOKIE = "pv_public_session";
 const BRIDGE_NAMESPACE = "/pv-digivote-bridge";
@@ -463,6 +500,8 @@ function extension(nodecg: NodeCG.ServerAPI): void {
   setter("pv:set-pause", "pv:toggle-pause", () => readState().paused);
 
   const api = nodecg.Router();
+  // Ein Datenimport (bis 15 Acts, 80 Jurys) ist größer als normale Anfragen.
+  api.use("/admin/import", express.json({ limit: "1mb" }));
   api.use(express.json({ limit: "32kb" }));
 
   const route = (
@@ -773,7 +812,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     const currentJuror = orderedJurors[state.currentJurorIndex];
     const currentBulkAward = state.phase === "JURY_REVEAL" && currentJuror
       ? (juryEntriesByJuror.get(currentJuror.id) ?? [])
-          .filter((entry) => entry.points >= 1 && entry.points <= 7)
+          .filter((entry) => isBulkJuryPoints(entry.points))
           .sort((left, right) => left.points - right.points)
       : [];
     // Was der nächste Klick auf "Nächsten Punkt zeigen" enthüllen würde –
@@ -855,12 +894,7 @@ function extension(nodecg: NodeCG.ServerAPI): void {
     });
   }));
 
-  api.post("/admin/reset-progress", route(async (_request, response) => {
-    const bundle = await getActiveEventBundle();
-    if (!bundle) {
-      response.status(503).json({ ok: false, error: "NO_EVENT" });
-      return;
-    }
+  const resetShowToSetup = async (bundle: EventBundle) => {
     clearPendingReveal();
     await resetEventProgress(bundle.event.id);
     update({
@@ -876,7 +910,114 @@ function extension(nodecg: NodeCG.ServerAPI): void {
       screens: { a: "RUHE", b: "RANGLISTE" }
     });
     await refreshVotingCounts(bundle);
+  };
+
+  api.post("/admin/reset-progress", route(async (_request, response) => {
+    const bundle = await getActiveEventBundle();
+    if (!bundle) {
+      response.status(503).json({ ok: false, error: "NO_EVENT" });
+      return;
+    }
+    await resetShowToSetup(bundle);
     response.json({ ok: true });
+  }));
+
+  // Datenexport für Tests: Einstellungen, Acts (inkl. Klarnamen) und Jurys mit PIN-Hash.
+  // Stimmzettel sind nicht enthalten. Act-Zuordnung der Jurys über die Startnummer.
+  api.get("/admin/export", route(async (_request, response) => {
+    const bundle = await getActiveEventBundle();
+    if (!bundle) {
+      response.status(503).json({ ok: false, error: "NO_EVENT" });
+      return;
+    }
+    const pinHashes = await getJurorPinHashes(bundle.event.id);
+    const startNumberByActId = new Map(bundle.acts.map((act) => [act.id, act.startNumber]));
+    const payload: DataExport = {
+      format: EXPORT_FORMAT,
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      eventName: bundle.event.name,
+      config: bundle.event.config,
+      acts: [...bundle.acts].sort((left, right) => left.startNumber - right.startNumber).map((act) => ({
+        startNumber: act.startNumber,
+        countryIsoCode: act.country.isoCode,
+        countryName: act.country.displayName,
+        pseudonym: act.pseudonym,
+        songTitle: act.songTitle,
+        realSongTitle: act.realSongTitle,
+        artistNames: act.artistNames
+      })),
+      jurors: bundle.jurors.map((juror) => ({
+        displayName: juror.displayName,
+        type: juror.type,
+        enabled: juror.enabled,
+        revealOrder: juror.revealOrder,
+        linkedStartNumber: juror.linkedActIds[0] ? startNumberByActId.get(juror.linkedActIds[0]) ?? null : null,
+        pinHash: pinHashes.get(juror.id) ?? null
+      }))
+    };
+    const stamp = payload.exportedAt.slice(0, 16).replace(/[:T]/g, "-");
+    response.setHeader("Content-Disposition", `attachment; filename="pv-digivote-${stamp}.json"`);
+    response.json(payload);
+  }));
+
+  // Datenimport: ersetzt Einstellungen, Acts und Jurys und setzt die Show vollständig zurück
+  // (Stimmen, Reveals, Phase). Bestehende Acts/Jurys werden über Startnummer bzw. Namen wiederverwendet.
+  api.post("/admin/import", route(async (request, response) => {
+    const parsed = dataImportSchema.safeParse(request.body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      response.status(422).json({
+        ok: false,
+        error: "INVALID_IMPORT",
+        message: issue ? `Importdatei ungültig (${issue.path.join(".") || "Datei"}): ${issue.message}` : "Importdatei ungültig."
+      });
+      return;
+    }
+    const data = parsed.data;
+    const bundle = await getActiveEventBundle();
+    if (!bundle) {
+      response.status(503).json({ ok: false, error: "NO_EVENT" });
+      return;
+    }
+    if (data.acts.length + await countWithdrawnActs(bundle.event.id) < 12) {
+      response.status(400).json({ ok: false, error: "TOO_FEW_ACTS", message: "Es müssen mindestens 12 Acts sein (Rückzieher zählen mit)." });
+      return;
+    }
+    const startNumbers = new Set(data.acts.map((act) => act.startNumber));
+    const missingLink = data.jurors.find((juror) => juror.linkedStartNumber != null && !startNumbers.has(juror.linkedStartNumber));
+    if (missingLink) {
+      response.status(422).json({ ok: false, error: "INVALID_IMPORT", message: `${missingLink.displayName} verweist auf Startnummer ${missingLink.linkedStartNumber}, die es nicht gibt.` });
+      return;
+    }
+
+    await resetShowToSetup(bundle);
+    const existingActIdByStart = new Map(bundle.acts.map((act) => [act.startNumber, act.id]));
+    await replaceEventActs(bundle.event.id, data.acts.map((act) => {
+      const id = existingActIdByStart.get(act.startNumber);
+      return { ...(id ? { id } : {}), ...act };
+    }));
+    const updated = await getActiveEventBundle();
+    const actIdByStart = new Map((updated?.acts ?? []).map((act) => [act.startNumber, act.id]));
+    const unusedJurors = [...bundle.jurors];
+    await replaceEventJurors(bundle.event.id, data.jurors.map((juror) => {
+      const matchIndex = unusedJurors.findIndex((existing) => existing.displayName === juror.displayName);
+      const existing = matchIndex >= 0 ? unusedJurors.splice(matchIndex, 1)[0] : undefined;
+      const linkedActId = juror.linkedStartNumber != null ? actIdByStart.get(juror.linkedStartNumber) : undefined;
+      return {
+        ...(existing ? { id: existing.id } : {}),
+        displayName: juror.displayName,
+        type: juror.type,
+        enabled: juror.enabled,
+        revealOrder: juror.revealOrder,
+        ...(juror.pin ? { pin: juror.pin } : juror.pinHash ? { pinHash: juror.pinHash } : {}),
+        ...(linkedActId ? { linkedActId } : {})
+      };
+    }));
+    await updateEventConfig(bundle.event.id, data.config);
+    const refreshed = await getActiveEventBundle();
+    if (refreshed) await refreshVotingCounts(refreshed);
+    response.json({ ok: true, acts: data.acts.length, jurors: data.jurors.length });
   }));
 
   api.get("/health", async (_request, response) => {

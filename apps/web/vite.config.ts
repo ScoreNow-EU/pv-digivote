@@ -15,6 +15,7 @@ const targets = {
     input: {
       "beamer-a": path.resolve(root, "beamer-a.html"),
       "beamer-b": path.resolve(root, "beamer-b.html"),
+      beamer: path.resolve(root, "beamer.html"),
       tablet: path.resolve(root, "tablet.html")
     }
   },

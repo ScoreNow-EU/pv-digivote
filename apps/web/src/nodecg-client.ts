@@ -118,7 +118,7 @@ export function useShowState(): [ShowState, (command: ShowCommand) => void, bool
       if (command.type === "update-event-config") return current;
       if (command.type === "start-runoff") return { ...current, phase: "STICHWAHL_OFFEN", revision: current.revision + 1 };
       if (command.type === "close-runoff") return { ...current, phase: "FINALE", revision: current.revision + 1 };
-      const sequence = [-1, 0, 8, 10, 12] as const;
+      const sequence: ReadonlyArray<typeof current.currentRevealPoint> = [-1, 0, 12];
       const index = sequence.indexOf(current.currentRevealPoint);
       if (command.type === "rewind-jury-reveal") {
         const atStart = index <= 0;

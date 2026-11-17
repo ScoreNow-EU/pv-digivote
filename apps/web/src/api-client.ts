@@ -181,6 +181,36 @@ export function runDemoVote(publicCount: number): Promise<DemoVoteResult> {
   return requestJson("/admin/demo-vote", { method: "POST", body: JSON.stringify({ publicCount }) });
 }
 
+export interface DataImportResult {
+  ok: true;
+  acts: number;
+  jurors: number;
+}
+
+// Lädt den Export als Datei herunter (Regie, gleiche Herkunft, daher mit Passwort-Session).
+export async function downloadDataExport(): Promise<string> {
+  const response = await fetch(`${API_BASE}/admin/export`, { credentials: "same-origin" });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as ApiErrorPayload;
+    throw new Error(payload.message ?? payload.error ?? `HTTP ${response.status}`);
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "pv-digivote-export.json";
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  return filename;
+}
+
+export function importData(data: unknown): Promise<DataImportResult> {
+  return requestJson("/admin/import", { method: "POST", body: JSON.stringify(data) });
+}
+
 export function resetShowProgress(): Promise<{ ok: true }> {
   return requestJson("/admin/reset-progress", { method: "POST", body: "{}" });
 }
